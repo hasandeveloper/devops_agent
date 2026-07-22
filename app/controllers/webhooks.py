@@ -1,0 +1,111 @@
+import hashlib
+import hmac
+import json
+import logging
+from urllib.parse import urlparse
+
+import httpx
+from fastapi import HTTPException, Request, status
+from sqlalchemy.orm import Session
+
+from config import settings
+from app.models import EventSource
+from app.services.ingestion import store_raw_event
+
+logger = logging.getLogger(__name__)
+
+_RESOURCE_DIMENSION_NAMES = {
+    "ClusterName",
+    "ServiceName",
+    "DBInstanceIdentifier",
+    "LoadBalancer",
+    "TargetGroup",
+    "AutoScalingGroupName",
+}
+
+
+def _is_trusted_sns_url(url: str) -> bool:
+    host = urlparse(url).hostname or ""
+    return host.endswith(".amazonaws.com")
+
+
+def _extract_resource_id(alarm_payload: dict) -> str | None:
+    dimensions = alarm_payload.get("Trigger", {}).get("Dimensions", [])
+    for dim in dimensions:
+        if dim.get("name") in _RESOURCE_DIMENSION_NAMES:
+            return dim.get("value")
+    return None
+
+
+async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
+    raw_body = await request.body()
+    try:
+        message = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid JSON body") from exc
+
+    message_type = request.headers.get("x-amz-sns-message-type", message.get("Type"))
+
+    if message_type == "SubscriptionConfirmation":
+        subscribe_url = message.get("SubscribeURL", "")
+        if settings.sns_auto_confirm_subscriptions and subscribe_url:
+            if not _is_trusted_sns_url(subscribe_url):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="untrusted SubscribeURL host")
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(subscribe_url)
+                resp.raise_for_status()
+            logger.info("Confirmed SNS subscription for topic %s", message.get("TopicArn"))
+        return {"status": "subscription_confirmation_handled"}
+
+    if message_type == "UnsubscribeConfirmation":
+        return {"status": "unsubscribe_acknowledged"}
+
+    if message_type != "Notification":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"unsupported message type: {message_type}"
+        )
+
+    try:
+        alarm_payload = json.loads(message["Message"])
+    except (KeyError, json.JSONDecodeError):
+        alarm_payload = {"raw_message": message.get("Message")}
+
+    event = store_raw_event(
+        db,
+        source=EventSource.cloudwatch,
+        event_type=alarm_payload.get("AlarmName", "unknown_alarm"),
+        resource_id=_extract_resource_id(alarm_payload),
+        payload=alarm_payload,
+    )
+
+    return {"status": "stored", "raw_event_id": str(event.id)}
+
+
+async def handle_github_webhook(request: Request, db: Session) -> dict:
+    raw_body = await request.body()
+
+    if settings.github_webhook_secret:
+        signature = request.headers.get("x-hub-signature-256", "")
+        expected = "sha256=" + hmac.new(
+            settings.github_webhook_secret.encode(), raw_body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid signature")
+
+    event_type = request.headers.get("x-github-event", "unknown")
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid JSON body") from exc
+
+    repo = payload.get("repository", {}).get("full_name")
+
+    event = store_raw_event(
+        db,
+        source=EventSource.github_actions,
+        event_type=event_type,
+        resource_id=repo,
+        payload=payload,
+    )
+
+    return {"status": "stored", "raw_event_id": str(event.id)}
