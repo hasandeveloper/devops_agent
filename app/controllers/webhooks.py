@@ -1,8 +1,5 @@
-import hashlib
-import hmac
 import json
 import logging
-from urllib.parse import urlparse
 
 import httpx
 from fastapi import HTTPException, Request, status
@@ -11,6 +8,11 @@ from sqlalchemy.orm import Session
 from config import settings
 from app.models import EventSource
 from app.services.ingestion import store_raw_event
+from app.controllers.concerns.webhooks.verifiable import (
+    is_trusted_sns_url,
+    verify_github_signature,
+    verify_sns_signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +24,6 @@ _RESOURCE_DIMENSION_NAMES = {
     "TargetGroup",
     "AutoScalingGroupName",
 }
-
-
-def _is_trusted_sns_url(url: str) -> bool:
-    host = urlparse(url).hostname or ""
-    return host.endswith(".amazonaws.com")
 
 
 def _extract_resource_id(alarm_payload: dict) -> str | None:
@@ -44,12 +41,14 @@ async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid JSON body") from exc
 
+    await verify_sns_signature(message)
+
     message_type = request.headers.get("x-amz-sns-message-type", message.get("Type"))
 
     if message_type == "SubscriptionConfirmation":
         subscribe_url = message.get("SubscribeURL", "")
         if settings.sns_auto_confirm_subscriptions and subscribe_url:
-            if not _is_trusted_sns_url(subscribe_url):
+            if not is_trusted_sns_url(subscribe_url):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="untrusted SubscribeURL host")
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(subscribe_url)
@@ -83,14 +82,7 @@ async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
 
 async def handle_github_webhook(request: Request, db: Session) -> dict:
     raw_body = await request.body()
-
-    if settings.github_webhook_secret:
-        signature = request.headers.get("x-hub-signature-256", "")
-        expected = "sha256=" + hmac.new(
-            settings.github_webhook_secret.encode(), raw_body, hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid signature")
+    verify_github_signature(raw_body, request.headers.get("x-hub-signature-256", ""))
 
     event_type = request.headers.get("x-github-event", "unknown")
     try:
