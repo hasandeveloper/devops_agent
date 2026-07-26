@@ -131,7 +131,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 1 \
   --threshold 80 --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
-  --alarm-actions $SNS_TOPIC --region $REGION
+  --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 ```
 
 **Memory** — `MemoryUtilization` (AWS/ECS), same shape as CPU.
@@ -145,7 +145,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 1 \
   --threshold 80 --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
-  --alarm-actions $SNS_TOPIC --region $REGION
+  --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 ```
 
 **Disk** — `VolumeIOPSExceededCheck` (AWS/EBS). This is a **binary check
@@ -162,7 +162,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Maximum --period 300 --evaluation-periods 1 \
   --threshold 0 --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
-  --alarm-actions $SNS_TOPIC --region $REGION
+  --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 ```
 
 **Host health** — `StatusCheckFailed` (AWS/EC2). AWS's own "is this host
@@ -178,7 +178,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Maximum --period 300 --evaluation-periods 2 \
   --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
   --treat-missing-data notBreaching \
-  --alarm-actions $SNS_TOPIC --region $REGION
+  --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 ```
 
 ### Layer 2 — Container/orchestration: target group health (1 per service)
@@ -198,7 +198,7 @@ for svc in "${(k@)TG}"; do
     --statistic Maximum --period 60 --evaluation-periods 2 \
     --threshold 0 --comparison-operator GreaterThanThreshold \
     --treat-missing-data notBreaching \
-    --alarm-actions $SNS_TOPIC --region $REGION
+    --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 done
 ```
 
@@ -221,7 +221,7 @@ for svc in "${(k@)TG}"; do
     --statistic Average --period 300 --evaluation-periods 3 \
     --threshold 2 --comparison-operator GreaterThanThreshold \
     --treat-missing-data notBreaching \
-    --alarm-actions $SNS_TOPIC --region $REGION
+    --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 done
 ```
 
@@ -239,7 +239,7 @@ for svc in "${(k@)TG}"; do
     --statistic Sum --period 300 --evaluation-periods 1 \
     --threshold 5 --comparison-operator GreaterThanThreshold \
     --treat-missing-data notBreaching \
-    --alarm-actions $SNS_TOPIC --region $REGION
+    --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 done
 ```
 
@@ -383,7 +383,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 2 \
   --threshold 50 --comparison-operator GreaterThanThreshold \
   --treat-missing-data notBreaching \
-  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
+  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
 ```
 
 **CPU** — `CPUUtilization` (AWS/RDS), same shape as the ECS CPU alarm.
@@ -397,7 +397,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 1 \
   --threshold 80 --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
-  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
+  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
 ```
 
 **Freeable memory** — `FreeableMemory` (AWS/RDS), raw bytes (not a
@@ -413,7 +413,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 2 \
   --threshold 200000000 --comparison-operator LessThanThreshold \
   --treat-missing-data notBreaching \
-  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
+  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
 ```
 
 **ACU ceiling** — `ServerlessDatabaseCapacity` (AWS/RDS). Dimensioned by
@@ -430,7 +430,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 3 \
   --threshold 1.8 --comparison-operator GreaterThanOrEqualToThreshold \
   --treat-missing-data notBreaching \
-  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
+  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
 ```
 
 > **Thresholds are rough starting defaults, not measured.** In particular,
@@ -488,6 +488,32 @@ for name in "${RDS_ALARMS[@]}"; do
     --region $REGION
 done
 ```
+
+---
+
+## Changelog: gaps found and fixed (2026-07-26)
+
+Checking the actual `raw_events` data after Step 5/Step 6 testing surfaced
+two real gaps, both now fixed:
+
+1. **`resource_id` was NULL for 3 alarm types** — `Dev Disk Spike`, `Dev EC2
+   Instance Health`, `Dev Aurora ACU Ceiling`. Cause: `_RESOURCE_DIMENSION_NAMES`
+   in `app/controllers/webhooks.py` didn't include `InstanceId`, `VolumeId`,
+   or `DBClusterIdentifier` — only `ClusterName`, `ServiceName`,
+   `DBInstanceIdentifier`, `LoadBalancer`, `TargetGroup`,
+   `AutoScalingGroupName`. Fixed by adding those 3 dimension names to the
+   set, and the 3 existing NULL rows were backfilled directly via SQL using
+   the same "first matching dimension in array order" logic.
+2. **No alarm ever produced a recovery signal** — every alarm's `OKActions`
+   was empty, so `raw_events` only ever recorded "problem started," never
+   "problem resolved." Fixed by re-running `put-metric-alarm` for all 20
+   alarms with `--ok-actions` added (same SNS topic as `--alarm-actions`) —
+   this is why every command in Steps 3 and 6 above now includes
+   `--ok-actions` by default.
+
+**Practical effect**: any environment set up with this runbook *from now
+on* gets both fixes automatically — this changelog only exists because dev
+was set up before the gaps were found.
 
 ---
 

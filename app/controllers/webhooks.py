@@ -20,9 +20,12 @@ _RESOURCE_DIMENSION_NAMES = {
     "ClusterName",
     "ServiceName",
     "DBInstanceIdentifier",
+    "DBClusterIdentifier",
     "LoadBalancer",
     "TargetGroup",
     "AutoScalingGroupName",
+    "InstanceId",
+    "VolumeId",
 }
 
 
