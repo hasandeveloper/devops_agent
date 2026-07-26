@@ -340,12 +340,164 @@ in the meantime.
 
 ---
 
+## Step 6 — RDS (Aurora PostgreSQL, Serverless v2) — data/dependency layer
+
+This project's databases are **Aurora Serverless v2**, not classic RDS or a
+fixed-capacity Aurora cluster — that changes which metrics matter:
+
+- **No `FreeStorageSpace` alarm** — Aurora storage auto-scales up to 128TB
+  and is billed per GB-month, not a fixed volume. "Running out of disk"
+  isn't a real failure mode here the way it is for EC2/EBS.
+- **No `AuroraReplicaLag` alarm** — only applies if the cluster has a reader
+  instance. Both clusters discovered below are single-writer, no readers.
+- **Add `ServerlessDatabaseCapacity` (ACU)** instead — Serverless v2 scales
+  compute between a configured min/max ACU range; alarming when it's pinned
+  near the ceiling is the equivalent of a CPU-spike alarm for this engine.
+
+### Discover your Aurora clusters
+
+```bash
+aws rds describe-db-clusters --region ap-south-1 \
+  --query 'DBClusters[?Engine==`aurora-postgresql`].{ClusterId:DBClusterIdentifier,Engine:Engine,EngineVersion:EngineVersion,ServerlessV2Scaling:ServerlessV2ScalingConfiguration,Members:DBClusterMembers[].{Instance:DBInstanceIdentifier,Writer:IsClusterWriter}}' \
+  --output json
+```
+
+Found (2026-07-26): two Aurora Postgres clusters exist on this account —
+`sgm-backend-dev-stage-mb-01` (0.5–2.0 ACU, dev/staging) and
+`sgm-serverless-db` (2.0–8.0 ACU, purpose not yet confirmed). Only the
+former has alarms set up so far; the runbook below is written for it.
+
+### The 4 alarms
+
+**Connections** — `DatabaseConnections` (AWS/RDS), per-instance on the
+writer. Exhausted connections means every new request to your API fails to
+reach the database at all — one of the most common real-world RDS
+incidents.
+
+```bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "Dev Aurora Connections" \
+  --namespace "AWS/RDS" \
+  --metric-name DatabaseConnections \
+  --dimensions Name=DBInstanceIdentifier,Value=sgm-backend-dev-stage-mb-01-instance-1 \
+  --statistic Average --period 300 --evaluation-periods 2 \
+  --threshold 50 --comparison-operator GreaterThanThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
+```
+
+**CPU** — `CPUUtilization` (AWS/RDS), same shape as the ECS CPU alarm.
+
+```bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "Dev Aurora CPU Spike" \
+  --namespace "AWS/RDS" \
+  --metric-name CPUUtilization \
+  --dimensions Name=DBInstanceIdentifier,Value=sgm-backend-dev-stage-mb-01-instance-1 \
+  --statistic Average --period 300 --evaluation-periods 1 \
+  --threshold 80 --comparison-operator GreaterThanThreshold \
+  --treat-missing-data missing \
+  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
+```
+
+**Freeable memory** — `FreeableMemory` (AWS/RDS), raw bytes (not a
+percentage). At this cluster's 0.5–2.0 ACU range (~2-4GB total RAM), 200MB
+free is already tight.
+
+```bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "Dev Aurora Low Memory" \
+  --namespace "AWS/RDS" \
+  --metric-name FreeableMemory \
+  --dimensions Name=DBInstanceIdentifier,Value=sgm-backend-dev-stage-mb-01-instance-1 \
+  --statistic Average --period 300 --evaluation-periods 2 \
+  --threshold 200000000 --comparison-operator LessThanThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
+```
+
+**ACU ceiling** — `ServerlessDatabaseCapacity` (AWS/RDS). Dimensioned by
+**cluster**, not instance — it's a cluster-level scaling metric. Fires when
+sustained near the configured max (2.0 ACU for this cluster), meaning the
+workload wants more compute than it's allowed.
+
+```bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "Dev Aurora ACU Ceiling" \
+  --namespace "AWS/RDS" \
+  --metric-name ServerlessDatabaseCapacity \
+  --dimensions Name=DBClusterIdentifier,Value=sgm-backend-dev-stage-mb-01 \
+  --statistic Average --period 300 --evaluation-periods 3 \
+  --threshold 1.8 --comparison-operator GreaterThanOrEqualToThreshold \
+  --treat-missing-data notBreaching \
+  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
+```
+
+> **Thresholds are rough starting defaults, not measured.** In particular,
+> `Connections > 50` is a guess — Aurora's actual `max_connections` is
+> derived from ACU/memory via a formula; run `SHOW max_connections;`
+> against the real instance and alarm at ~80% of that instead once known.
+
+### Test all 4 end-to-end
+
+Same `set-alarm-state` pattern as Step 5 — works identically regardless of
+metric type.
+
+**Before running:** make sure your `uvicorn` app + tunnel are up — these
+fire real SNS notifications through your webhook subscription.
+
+```zsh
+REGION="ap-south-1"
+
+RDS_ALARMS=(
+  "Dev Aurora Connections"
+  "Dev Aurora CPU Spike"
+  "Dev Aurora Low Memory"
+  "Dev Aurora ACU Ceiling"
+)
+
+for name in "${RDS_ALARMS[@]}"; do
+  echo "Triggering: $name"
+  aws cloudwatch set-alarm-state \
+    --alarm-name "$name" \
+    --state-value ALARM \
+    --state-reason "manual test - devops-agent verification" \
+    --region $REGION
+done
+```
+
+**Verify all 4 landed in Postgres:**
+
+```bash
+docker exec devops-agent-postgres-1 psql -U devops_agent -d devops_agent -c "
+SELECT payload->>'AlarmName' AS alarm_name, received_at
+FROM raw_events
+WHERE source = 'cloudwatch' AND received_at > now() - interval '10 minutes'
+ORDER BY received_at DESC;
+"
+```
+
+**Reset back to OK afterward:**
+
+```zsh
+for name in "${RDS_ALARMS[@]}"; do
+  aws cloudwatch set-alarm-state \
+    --alarm-name "$name" \
+    --state-value OK \
+    --state-reason "reset after manual test" \
+    --region $REGION
+done
+```
+
+---
+
 ## Not covered here (deferred)
 
-- **Data/dependency layer** — RDS connections/replication lag, ElastiCache
-  Redis metrics (native, if Redis is AWS-managed), and self-hosted
-  Elasticsearch (needs the CloudWatch agent installed first — it's not an
-  AWS-managed service and has no native CloudWatch metrics).
+- **ElastiCache Redis metrics** — native CloudWatch metrics exist since
+  Redis here is AWS-managed (ElastiCache), not yet set up.
+- **Self-hosted Elasticsearch** — needs the CloudWatch agent installed
+  first; it's not an AWS-managed service and has no native CloudWatch
+  metrics.
 - **Synthetic/business layer** — uptime checks / synthetic transactions.
 - **FARGATE-specific host metrics** — this runbook's layer-1 disk/host-health
   alarms assume EC2 launch type; Fargate clusters skip those two.
@@ -405,7 +557,7 @@ Alarms use `Dev <name>` naming for this cluster (predates this runbook's
 on 2026-07-26 from a non-functional `Average > 80` config to the `Maximum >
 0` config documented in Step 3.
 
-**Status as of 2026-07-26: 16 of 16 created and verified.**
+**Status as of 2026-07-26: 16 of 16 ECS-layer alarms + 4 of 4 RDS alarms created.**
 
 | Alarm | Status |
 |---|---|
@@ -416,16 +568,21 @@ on 2026-07-26 from a non-functional `Average > 80` config to the `Maximum >
 | `Dev {4 services} Target Unhealthy` | ✅ all 4 |
 | `Dev {4 services} Latency` | ✅ all 4 |
 | `Dev {4 services} 5xx Errors` | ✅ all 4 |
+| `Dev Aurora Connections` | ✅ (threshold unverified, see Step 6) |
+| `Dev Aurora CPU Spike` | ✅ |
+| `Dev Aurora Low Memory` | ✅ |
+| `Dev Aurora ACU Ceiling` | ✅ |
 
 Confirmed via:
 ```bash
 aws cloudwatch describe-alarms --region ap-south-1 --alarm-name-prefix "Dev" \
   --query 'length(MetricAlarms)' --output text
-# -> 16
+# -> 20
 ```
 
-Full 3-layer coverage (infra, container/orchestration, application) for
-`sgm-development-cluster` is complete. Next: repeat this runbook for
-`sgm-staging-cluster` and `sgm-production-cluster` when ready, and see
-"Not covered here" above for the data/dependency and synthetic layers still
-deferred.
+Full 3-layer ECS coverage (infra, container/orchestration, application) for
+`sgm-development-cluster`, plus the Aurora Postgres data layer, is complete.
+Next: repeat the ECS runbook for `sgm-staging-cluster` and
+`sgm-production-cluster` when ready, decide whether `sgm-serverless-db`
+needs its own alarms, and see "Not covered here" above for ElastiCache,
+self-hosted Elasticsearch, and the synthetic layer still deferred.
