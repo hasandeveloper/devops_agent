@@ -3,7 +3,7 @@ already states its own namespace; every GitHub event states its own source.
 There's no judgment call to make here, only a table lookup.
 """
 
-from app.agents.domains import rds_agent
+from app.agents.domains.rds import builder as rds_agent
 
 
 async def route(raw_event: dict) -> str:
