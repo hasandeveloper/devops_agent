@@ -6,6 +6,6 @@ from config.llm import get_llm
 
 async def diagnose(state: AgentState) -> dict:
     llm = get_llm().with_structured_output(Diagnosis)
-    prompt = build_prompt(state["raw_event"]["payload"], state["context"])
+    prompt = build_prompt(state["raw_event"]["payload"], state["context"], state["similar_incidents"])
     diagnosis: Diagnosis = await llm.ainvoke(prompt)
     return {"diagnosis": diagnosis.model_dump(mode="json")}

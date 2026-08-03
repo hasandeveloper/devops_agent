@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from config import settings
+from app.agents import supervisor
 from app.models import EventSource
 from app.services.ingestion import store_raw_event
 from app.controllers.concerns.webhooks.verifiable import (
@@ -37,6 +38,56 @@ def _extract_resource_id(alarm_payload: dict) -> str | None:
     return None
 
 
+async def _route_event(raw_event: dict) -> None:
+    try:
+        await supervisor.route(raw_event)
+    except Exception:
+        logger.exception("agent routing failed for raw_event_id=%s", raw_event["id"])
+
+async def handle_sns_control_message(
+    message_type: str,
+    message: dict,
+) -> dict | None:
+    """Handle SNS lifecycle messages.
+
+    Returns:
+        dict: Response for handled control messages.
+        None: If this is a Notification and processing should continue.
+    """
+
+    if message_type == "SubscriptionConfirmation":
+        subscribe_url = message.get("SubscribeURL", "")
+
+        if settings.sns_auto_confirm_subscriptions and subscribe_url:
+            if not is_trusted_sns_url(subscribe_url):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="untrusted SubscribeURL host",
+                )
+
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(subscribe_url)
+                response.raise_for_status()
+
+            logger.info(
+                "Confirmed SNS subscription for topic %s",
+                message.get("TopicArn"),
+            )
+
+        return {"status": "subscription_confirmation_handled"}
+
+    if message_type == "UnsubscribeConfirmation":
+        return {"status": "unsubscribe_acknowledged"}
+
+    if message_type != "Notification":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"unsupported message type: {message_type}",
+        )
+
+    # Notification → continue normal processing
+    return None
+
 async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
     raw_body = await request.body()
     try:
@@ -46,26 +97,18 @@ async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
 
     await verify_sns_signature(message)
 
-    message_type = request.headers.get("x-amz-sns-message-type", message.get("Type"))
+    message_type = request.headers.get(
+        "x-amz-sns-message-type",
+        message.get("Type"),
+    )
 
-    if message_type == "SubscriptionConfirmation":
-        subscribe_url = message.get("SubscribeURL", "")
-        if settings.sns_auto_confirm_subscriptions and subscribe_url:
-            if not is_trusted_sns_url(subscribe_url):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="untrusted SubscribeURL host")
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(subscribe_url)
-                resp.raise_for_status()
-            logger.info("Confirmed SNS subscription for topic %s", message.get("TopicArn"))
-        return {"status": "subscription_confirmation_handled"}
+    response = await handle_sns_control_message(
+        message_type,
+        message,
+    )
 
-    if message_type == "UnsubscribeConfirmation":
-        return {"status": "unsubscribe_acknowledged"}
-
-    if message_type != "Notification":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=f"unsupported message type: {message_type}"
-        )
+    if response:
+        return response
 
     try:
         alarm_payload = json.loads(message["Message"])
@@ -78,6 +121,10 @@ async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
         event_type=alarm_payload.get("AlarmName", "unknown_alarm"),
         resource_id=_extract_resource_id(alarm_payload),
         payload=alarm_payload,
+    )
+
+    await _route_event(
+        {"id": event.id, "source": event.source, "resource_id": event.resource_id, "payload": alarm_payload}
     )
 
     return {"status": "stored", "raw_event_id": str(event.id)}

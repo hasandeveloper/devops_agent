@@ -17,5 +17,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-5"
 
+    # Embeddings always go through OpenAI regardless of llm_provider -- Anthropic has no embeddings API.
+    embedding_model: str = "text-embedding-3-small"
+
 
 settings = Settings()

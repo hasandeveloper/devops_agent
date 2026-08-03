@@ -11,6 +11,7 @@ MCP_SERVERS = {"rds": stdio_server("app.agents.domains.rds.mcp_server")}
 def _parse_mcp_result(result):
     """MCP tool results arrive as a list of {"type": "text", "text": "<json>"} blocks --
     one block per returned item. Unwrap to the plain Python value the tool actually returned."""
+    
     if isinstance(result, list) and result and all(isinstance(item, dict) and "text" in item for item in result):
         parsed = [json.loads(item["text"]) for item in result]
         return parsed[0] if len(parsed) == 1 else parsed
