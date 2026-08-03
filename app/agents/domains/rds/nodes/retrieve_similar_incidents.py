@@ -1,7 +1,5 @@
 from app.agents.shared.state.agent import AgentState
-from app.services.embedding_service import embed_text
-from app.services.incident_service import find_similar_incidents
-from db import SessionLocal
+from config.vectorstore import get_vectorstore
 
 
 def _build_query_text(payload: dict) -> str:
@@ -15,14 +13,11 @@ def _build_query_text(payload: dict) -> str:
 
 def retrieve_similar_incidents(state: AgentState) -> dict:
     query_text = _build_query_text(state["raw_event"]["payload"])
-    embedding = embed_text(query_text)
-    db = SessionLocal()
-    try:
-        similar = find_similar_incidents(db, embedding, limit=3)
-        return {
-            "similar_incidents": [
-                {"title": i.title, "description": i.description, "risk_tier": i.risk_tier} for i in similar
-            ]
-        }
-    finally:
-        db.close()
+
+    retriever = get_vectorstore().as_retriever(
+        search_type="mmr",
+        search_kwargs={"k": 3, "fetch_k": 20, "lambda_mult": 0.7},
+    )
+    docs = retriever.invoke(query_text)
+
+    return {"similar_incidents": [doc.metadata for doc in docs]}
