@@ -20,5 +20,10 @@ class Settings(BaseSettings):
     # Embeddings always go through OpenAI regardless of llm_provider -- Anthropic has no embeddings API.
     embedding_model: str = "text-embedding-3-small"
 
+    langsmith_tracing: bool = False
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_api_key: str = ""
+    langsmith_project: str = ""
+
 
 settings = Settings()
