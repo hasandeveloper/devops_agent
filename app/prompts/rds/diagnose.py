@@ -38,6 +38,10 @@ _PROMPT_TEMPLATE = """\
 
     {similar_incidents}
 
+    ## Investigation Findings
+
+    {investigation}
+
     ## Expected Output
 
     Return:
@@ -94,10 +98,11 @@ def _format_similar_incidents(similar_incidents: list[dict]) -> str:
     return "\n\n".join(results)
 
 
-def build_prompt(payload: dict, context: dict, similar_incidents: list[dict]) -> str:
+def build_prompt(payload: dict, context: dict, similar_incidents: list[dict], investigation: str | None) -> str:
     formatted = textwrap.dedent(_PROMPT_TEMPLATE).format(
         payload=_format_json(payload),
         context=_format_json(context),
         similar_incidents=_format_similar_incidents(similar_incidents),
+        investigation=investigation or "No further investigation was needed.",
     )
     return formatted.strip()
