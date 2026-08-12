@@ -26,6 +26,20 @@ alembic upgrade head
 uvicorn main:app --reload
 ```
 
+Alarm dispatch runs through Celery (`jobs/webhooks_job.py`), so a worker needs
+to be running too, alongside a Redis instance (`CELERY_BROKER_URL` in `.env` —
+this project doesn't run Redis itself, point it at one you already have):
+
+```bash
+python -m celery -A config.celery_app worker --loglevel=info
+```
+
+(`python -m celery`, not the bare `celery` command -- the console-script entry
+point doesn't reliably put the project root on `sys.path`, so the worker
+fails to import `jobs.webhooks_job` with `ModuleNotFoundError: No module
+named 'jobs'` otherwise. `python -m` always adds the current directory to
+`sys.path`.)
+
 ## Endpoints
 
 - `GET /health` — DB connectivity check.

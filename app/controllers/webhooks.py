@@ -6,9 +6,9 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from config import settings
-from app.agents import supervisor
 from app.models import EventSource
 from app.services.ingestion import store_raw_event
+from jobs.webhooks_job import aws_sns_event_job
 from app.controllers.concerns.webhooks.verifiable import (
     is_trusted_sns_url,
     verify_github_signature,
@@ -37,12 +37,6 @@ def _extract_resource_id(alarm_payload: dict) -> str | None:
             return dim.get("value")
     return None
 
-
-async def _route_event(raw_event: dict) -> None:
-    try:
-        await supervisor.route(raw_event)
-    except Exception:
-        logger.exception("agent routing failed for raw_event_id=%s", raw_event["id"])
 
 async def handle_sns_control_message(
     message_type: str,
@@ -123,8 +117,8 @@ async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
         payload=alarm_payload,
     )
 
-    await _route_event(
-        {"id": event.id, "source": event.source, "resource_id": event.resource_id, "payload": alarm_payload}
+    aws_sns_event_job.delay(
+        {"id": str(event.id), "source": str(event.source), "resource_id": event.resource_id, "payload": alarm_payload}
     )
 
     return {"status": "stored", "raw_event_id": str(event.id)}

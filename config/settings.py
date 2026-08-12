@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+psycopg://devops_agent:devops_agent@localhost:5432/devops_agent"
+    celery_broker_url: str = "redis://localhost:6379/0"
     log_level: str = "INFO"
     sns_auto_confirm_subscriptions: bool = True
     github_webhook_secret: str = ""
