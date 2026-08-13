@@ -5,25 +5,13 @@ from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from app.agents.shared.state.agent import AgentState
+from app.prompts.rds.investigation import build_prompt
 from config.llm import get_llm
 from config.mcp import stdio_server
 
 logger = logging.getLogger(__name__)
 
 MCP_SERVERS = {"rds": stdio_server("app.agents.domains.rds.mcp_server")}
-
-_INVESTIGATION_PROMPT = (
-    "You're investigating an RDS alarm for the '{environment}' environment. You already have "
-    "the alarm payload, cluster status (context.cluster_info, including the writer instance's "
-    "identifier under 'members'), recent metric trend, connection counts, and lock waits. "
-    "Decide whether deeper investigation is warranted using the tools available:\n"
-    "- get_performance_insights_top_sql: which SQL is consuming the most DB load recently -- "
-    "pass the writer instance's identifier from context.cluster_info.members\n"
-    "- explain_query_for_pid: get the query plan for a specific backend PID you've already seen "
-    "(always pass environment='{environment}' when calling this)\n"
-    "If nothing looks abnormal, don't call any tool -- say so directly. Otherwise, summarize "
-    "what you found in a few sentences. Don't speculate beyond what the tools actually returned."
-)
 
 
 async def investigate_further(state: AgentState) -> dict:
@@ -32,9 +20,7 @@ async def investigate_further(state: AgentState) -> dict:
     expensive_tools = [t for t in tools if t.name in ("get_performance_insights_top_sql", "explain_query_for_pid")]
 
     environment = state["context"]["environment"]
-    agent = create_agent(
-        get_llm(), expensive_tools, system_prompt=_INVESTIGATION_PROMPT.format(environment=environment)
-    )
+    agent = create_agent(get_llm(), expensive_tools, system_prompt=build_prompt(environment))
     input_summary = json.dumps({"alarm": state["raw_event"]["payload"], "context": state["context"]}, default=str)
     result = await agent.ainvoke({"messages": [{"role": "user", "content": input_summary}]})
 
