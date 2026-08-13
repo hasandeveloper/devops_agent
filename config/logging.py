@@ -9,6 +9,7 @@ and mirrors everything shown in the terminal into logs/app.log too.
 
 import logging
 import os
+from logging.handlers import RotatingFileHandler
 
 from config.settings import settings
 
@@ -19,12 +20,23 @@ from config.settings import settings
 LOG_DIR = "logs"
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 _LOG_FILE = os.path.join(LOG_DIR, "app.log")
+_LOG_MAX_BYTES = 50 * 1024 * 1024
+_LOG_BACKUP_COUNT = 5
 
 
 def configure_logging() -> None:
     os.makedirs(LOG_DIR, exist_ok=True)
+    file_handler = RotatingFileHandler(_LOG_FILE, maxBytes=_LOG_MAX_BYTES, backupCount=_LOG_BACKUP_COUNT)
     logging.basicConfig(
         level=settings.log_level,
         format=LOG_FORMAT,
-        handlers=[logging.StreamHandler(), logging.FileHandler(_LOG_FILE)],
+        handlers=[logging.StreamHandler(), file_handler],
     )
+
+    # Uvicorn configures "uvicorn"/"uvicorn.error"/"uvicorn.access" with their own
+    # handler and propagate=False, so their records (startup/shutdown/reload, and
+    # every access log line) never reach root and skip the app.log handler above.
+    # Attach it directly so those lines land in app.log too, alongside whatever
+    # Uvicorn still prints to the terminal via its own handler.
+    for uvicorn_logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logging.getLogger(uvicorn_logger_name).addHandler(file_handler)
