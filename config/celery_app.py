@@ -1,18 +1,17 @@
 import logging
 import os
-from logging.handlers import RotatingFileHandler
 
 from celery import Celery
 from celery.signals import after_setup_logger
+from concurrent_log_handler import ConcurrentRotatingFileHandler
 
-from config.logging import LOG_DIR, LOG_FORMAT
+from config.logging import LOG_BACKUP_COUNT, LOG_DIR, LOG_FORMAT, LOG_MAX_BYTES
 from config.settings import settings
 
 celery_app = Celery("devops_agent", broker=settings.celery_broker_url, include=["jobs.webhooks_job"])
 
 _JOBS_LOG_FILE = os.path.join(LOG_DIR, "jobs.log")
-_JOBS_LOG_MAX_BYTES = 50 * 1024 * 1024
-_JOBS_LOG_BACKUP_COUNT = 5
+_jobs_log_attached = False
 
 
 @after_setup_logger.connect
@@ -25,6 +24,15 @@ def _route_worker_logs_to_jobs_log(logger, **kwargs) -> None:
     # lifecycle, RDS pipeline nodes, MCP tool calls, LLM HTTP calls) into jobs.log --
     # not just jobs/webhooks_job.py's own log lines. This only runs inside an actual
     # `celery worker` process, so app.log/the FastAPI process are unaffected.
-    handler = RotatingFileHandler(_JOBS_LOG_FILE, maxBytes=_JOBS_LOG_MAX_BYTES, backupCount=_JOBS_LOG_BACKUP_COUNT)
+    #
+    # Guarded by _jobs_log_attached: if this module ever ends up imported twice under
+    # two different module identities (e.g. relative vs. absolute import paths), the
+    # signal would otherwise be connected twice and every line would be written to
+    # jobs.log twice.
+    global _jobs_log_attached
+    if _jobs_log_attached:
+        return
+    handler = ConcurrentRotatingFileHandler(_JOBS_LOG_FILE, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT)
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
     logger.addHandler(handler)
+    _jobs_log_attached = True
