@@ -4,7 +4,7 @@ import logging
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from app.agents.shared.state.agent import AgentState
-from config.mcp import stdio_server
+from config.mcp import invoke_tool, stdio_server
 
 logger = logging.getLogger(__name__)
 
@@ -55,31 +55,32 @@ async def gather_context(state: AgentState) -> dict:
         cluster_id = dims["DBClusterIdentifier"]
     elif "DBInstanceIdentifier" in dims:
         instance_info = _parse_mcp_result(
-            await describe_instance_tool.ainvoke({"instance_id": dims["DBInstanceIdentifier"]})
+            await invoke_tool(describe_instance_tool, {"instance_id": dims["DBInstanceIdentifier"]})
         )
         cluster_id = instance_info["db_cluster_identifier"]
     else:
         cluster_id = state["raw_event"].get("resource_id")
 
-    cluster_info = _parse_mcp_result(await describe_cluster_tool.ainvoke({"cluster_id": cluster_id}))
+    cluster_info = _parse_mcp_result(await invoke_tool(describe_cluster_tool, {"cluster_id": cluster_id}))
     recent_trend = _parse_mcp_result(
-        await trend_tool.ainvoke(
+        await invoke_tool(
+            trend_tool,
             {
                 "namespace": trigger.get("Namespace", "AWS/RDS"),
                 "metric_name": trigger.get("MetricName", ""),
                 "dimension_name": dimension_name,
                 "dimension_value": dimension_value,
                 "minutes": 30,
-            }
+            },
         )
     )
 
     # The alarm's "environment" tag decides which app database the DB-internal
     # tools below connect to -- it's not in the SNS payload, only fetchable via
     # this separate lookup on the alarm's own ARN.
-    environment = _parse_mcp_result(await alarm_environment_tool.ainvoke({"alarm_arn": payload["AlarmArn"]}))
-    active_connections = _parse_mcp_result(await active_connections_tool.ainvoke({"environment": environment}))
-    lock_waits = _parse_mcp_result(await lock_waits_tool.ainvoke({"environment": environment}))
+    environment = _parse_mcp_result(await invoke_tool(alarm_environment_tool, {"alarm_arn": payload["AlarmArn"]}))
+    active_connections = _parse_mcp_result(await invoke_tool(active_connections_tool, {"environment": environment}))
+    lock_waits = _parse_mcp_result(await invoke_tool(lock_waits_tool, {"environment": environment}))
 
     logger.info(
         "raw_event_id=%s cluster_id=%s environment=%s lock_waits=%d",

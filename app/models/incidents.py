@@ -42,5 +42,9 @@ class Incident(Base):
     summary_embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set only after a Slack post actually succeeds (see notify_slack.py) -- lets a Celery
+    # retry that reaches notify_slack again tell "already notified, don't re-post" apart
+    # from "never notified yet, still need to." NULL means not yet notified.
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     raw_event: Mapped["RawEvent"] = relationship(back_populates="incidents")

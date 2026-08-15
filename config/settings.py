@@ -17,6 +17,17 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://devops_agent:devops_agent@localhost:5432/devops_agent"
     celery_broker_url: str = "redis://localhost:6379/0"
+    # Caps how many diagnosis runs can start per minute regardless of alarm volume or
+    # worker concurrency -- an alarm storm (e.g. a real outage triggering many alarms
+    # at once) would otherwise fan out into that many concurrent LLM pipelines with no
+    # ceiling on cost. Celery enforces this per-worker via task_annotations (see
+    # config/celery_app.py), throttling task pickup rather than dropping/rejecting.
+    celery_task_rate_limit: str = "20/m"
+    # First line of defense against a webhook flood (real or malicious) before it even
+    # reaches Celery -- deliberately looser than celery_task_rate_limit above, since
+    # this guards raw request volume, not diagnosis-pipeline cost specifically.
+    webhook_rate_limit: int = 60
+    webhook_rate_limit_window_seconds: int = 60
     log_level: str = "INFO"
     sns_auto_confirm_subscriptions: bool = True
     github_webhook_secret: str = ""
@@ -25,6 +36,15 @@ class Settings(BaseSettings):
 
     # LLM provider -- swap by changing llm_provider (+ matching api key/model), no agent code changes needed.
     llm_provider: str = "openai"  # "openai" | "anthropic"
+    # Every LLM call in this app goes through config.llm.get_llm(), so this bounds all
+    # of them -- without it, a slow/hung provider response blocks the Celery task (and
+    # the worker slot running it) indefinitely, since nothing else times it out.
+    llm_timeout_seconds: float = 60.0
+    # investigate_further.py's ReAct loop is the only place an LLM decides how many
+    # times to call tools -- recursion_limit already bounds the number of round trips,
+    # this bounds the actual cost of them. See app/agents/shared/token_budget.py for
+    # why this is checked after the loop finishes, not used to interrupt it mid-flight.
+    max_investigation_tokens: int = 20000
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     anthropic_api_key: str = ""

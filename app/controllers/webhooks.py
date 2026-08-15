@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from config import settings
 from app.models import EventSource
 from app.services.ingestion import store_raw_event
+from app.services.rate_limiter import is_rate_limited
 from jobs.webhooks_job import aws_sns_event_job
 from app.controllers.concerns.webhooks.verifiable import (
     is_trusted_sns_url,
@@ -83,6 +84,18 @@ async def handle_sns_control_message(
     return None
 
 async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
+    # Checked before anything else -- cheapest possible rejection for a flood (real or
+    # malicious) before spending any effort parsing/verifying/storing it. One shared key
+    # across all callers: this guards raw request volume to this endpoint, not any one
+    # sender's fair share of it.
+    rate_limited = is_rate_limited(
+        "rate_limit:cloudwatch_webhook",
+        limit=settings.webhook_rate_limit,
+        window_seconds=settings.webhook_rate_limit_window_seconds,
+    )
+    if rate_limited:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="too many requests")
+
     raw_body = await request.body()
     try:
         message = json.loads(raw_body)

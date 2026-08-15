@@ -19,3 +19,5 @@ langchain-mcp-adapters==0.3.0
 langchain-postgres==0.0.17
 celery[redis]==5.5.3
 concurrent-log-handler==0.9.29
+pytest==9.1.1
+pytest-asyncio==1.4.0

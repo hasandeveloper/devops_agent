@@ -23,7 +23,14 @@ LOG_DIR = "logs"
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 LOG_MAX_BYTES = 50 * 1024 * 1024
 LOG_BACKUP_COUNT = 5
-_LOG_FILE = os.path.join(LOG_DIR, "app.log")
+# Normally app.log -- but the RDS MCP server (mcp_server.py) runs as its own subprocess
+# (see config.mcp.stdio_server), spawned fresh per tool-call session by worker-side
+# pipeline code, never by the FastAPI process. That subprocess imports config too, so it
+# calls this same configure_logging() independently, in its own process, and would
+# otherwise write its own internal chatter (mcp/botocore/etc.) into app.log even though
+# it only ever runs as part of a job. stdio_server() sets LOG_FILE_NAME=jobs.log in that
+# subprocess's environment so its own root logger points at jobs.log instead.
+_LOG_FILE = os.path.join(LOG_DIR, os.environ.get("LOG_FILE_NAME", "app.log"))
 
 _app_file_handler: ConcurrentRotatingFileHandler | None = None
 

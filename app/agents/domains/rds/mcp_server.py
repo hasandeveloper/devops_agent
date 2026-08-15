@@ -166,6 +166,28 @@ def get_performance_insights_top_sql(instance_id: str, minutes: int = 60) -> lis
     ]
 
 
+def _explain_safety_violation(query: str) -> str | None:
+    """None if `query` is safe to interpolate into an EXPLAIN statement, else why not.
+
+    A pure function (no DB access) specifically so this security check has direct unit
+    test coverage without needing a live database connection -- it's the only place in
+    this codebase that builds a SQL string via interpolation rather than parameters.
+
+    psycopg's execute() uses the simple query protocol for parameter-less calls, which
+    silently runs semicolon-separated statements as a batch -- confirmed empirically
+    that "EXPLAIN (FORMAT JSON) SELECT 1; CREATE TABLE x (...)" really creates the
+    table, since EXPLAIN only wraps the first statement. Reject anything but one
+    SELECT/WITH statement before the retrieved text ever reaches execute(), rather
+    than relying solely on the read-only role to block whatever a stacked statement
+    might attempt.
+    """
+    if query.rstrip(";").count(";") > 0:
+        return "refusing to explain a multi-statement query"
+    if not query.upper().startswith(("SELECT", "WITH")):
+        return "refusing to explain a non-SELECT statement"
+    return None
+
+
 @mcp.tool()
 def explain_query_for_pid(environment: str, pid: int) -> dict:
     """Read-only: query plan (EXPLAIN, never ANALYZE -- doesn't execute anything) for whatever
@@ -180,16 +202,9 @@ def explain_query_for_pid(environment: str, pid: int) -> dict:
 
         query = row[0].strip()
 
-        # psycopg's execute() uses the simple query protocol for parameter-less calls, which
-        # silently runs semicolon-separated statements as a batch -- confirmed empirically that
-        # "EXPLAIN (FORMAT JSON) SELECT 1; CREATE TABLE x (...)" really creates the table, since
-        # EXPLAIN only wraps the first statement. Reject anything but one SELECT/WITH statement
-        # before the retrieved text ever reaches execute(), rather than relying solely on the
-        # read-only role to block whatever a stacked statement might attempt.
-        if query.rstrip(";").count(";") > 0:
-            return {"pid": pid, "error": "refusing to explain a multi-statement query"}
-        if not query.upper().startswith(("SELECT", "WITH")):
-            return {"pid": pid, "error": "refusing to explain a non-SELECT statement"}
+        violation = _explain_safety_violation(query)
+        if violation is not None:
+            return {"pid": pid, "error": violation}
 
         try:
             cur.execute(f"EXPLAIN (FORMAT JSON) {query}")

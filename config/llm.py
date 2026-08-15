@@ -16,6 +16,7 @@ def get_llm(temperature: float = 0) -> BaseChatModel:
             model=settings.openai_model,
             api_key=settings.openai_api_key,
             temperature=temperature,
+            timeout=settings.llm_timeout_seconds,
         )
 
     if settings.llm_provider == "anthropic":
@@ -25,6 +26,7 @@ def get_llm(temperature: float = 0) -> BaseChatModel:
             model=settings.anthropic_model,
             api_key=settings.anthropic_api_key,
             temperature=temperature,
+            timeout=settings.llm_timeout_seconds,
         )
 
     raise ValueError(f"unsupported llm_provider: {settings.llm_provider!r}")

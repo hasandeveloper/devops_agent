@@ -10,6 +10,14 @@ from config.settings import settings
 
 celery_app = Celery("devops_agent", broker=settings.celery_broker_url, include=["jobs.webhooks_job"])
 
+# Throttles how many aws_sns_event_job runs start per minute, regardless of how many
+# alarms arrive at once or how many worker processes/concurrency slots exist -- caps
+# the cost blast radius of an alarm storm. Celery enforces this by delaying task
+# pickup (tasks queue and wait their turn), not by dropping or erroring them.
+celery_app.conf.task_annotations = {
+    "jobs.webhooks_job.aws_sns_event_job": {"rate_limit": settings.celery_task_rate_limit}
+}
+
 _JOBS_LOG_FILE = os.path.join(LOG_DIR, "jobs.log")
 _jobs_log_attached = False
 

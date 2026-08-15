@@ -40,6 +40,16 @@ fails to import `jobs.webhooks_job` with `ModuleNotFoundError: No module
 named 'jobs'` otherwise. `python -m` always adds the current directory to
 `sys.path`.)
 
+## Testing
+
+```bash
+pytest                # fast, deterministic, no API cost -- tests/unit/
+pytest -m llm tests/eval   # golden-dataset regression check for diagnose()'s LLM
+                            # output -- real OpenAI calls, real cost, excluded from the
+                            # default run (see pytest.ini). Run this after changing
+                            # OPENAI_MODEL/ANTHROPIC_MODEL or any RDS prompt.
+```
+
 ## Endpoints
 
 - `GET /health` — DB connectivity check.
