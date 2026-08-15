@@ -81,7 +81,7 @@ aws ecs describe-services --cluster "$CLUSTER_NAME" --region "$REGION" \
   --query 'services[].{name:serviceName,launchType:launchType,targetGroups:loadBalancers[].targetGroupArn}' \
   --output json
 
-# EC2 instance(s) backing the cluster (only relevant if launchType is EC2, not FARGATE)
+# EC2 instance(s) backing the cluster (this project only runs EC2 launch type, never Fargate)
 CI_ARNS=$(aws ecs list-container-instances --cluster "$CLUSTER_NAME" --region "$REGION" --query 'containerInstanceArns' --output text)
 aws ecs describe-container-instances --cluster "$CLUSTER_NAME" --container-instances $CI_ARNS --region "$REGION" \
   --query 'containerInstances[].{ec2InstanceId:ec2InstanceId,status:status}' --output json
@@ -95,10 +95,18 @@ aws elbv2 describe-target-groups --target-group-arns "<TARGET_GROUP_ARN>" --regi
   --query 'TargetGroups[0].{name:TargetGroupName,lbArns:LoadBalancerArns}' --output json
 ```
 
-> If the cluster's services run on **FARGATE** rather than EC2, skip the
-> EC2-instance and EBS-volume discovery (and the layer-1 disk/host-health
-> alarms below) — there's no underlying host to alarm on; Fargate manages
-> that layer for you.
+> **If the cluster's EC2 instances are managed by an Auto Scaling Group that
+> varies the instance count, skip the EC2-instance/EBS-volume discovery above
+> and the layer-1 Disk/Host-health alarms below** — this is how `production`
+> is set up, unlike `dev`/`stag`'s single fixed instance.
+> `INSTANCE_ID`/`VOLUME_ID` assume exactly one instance/volume to point a
+> dimension at, which doesn't exist when the ASG can add or remove instances
+> at any time. Layer 2's `UnHealthyHostCount` alarm (per target group,
+> already in this runbook) covers "one instance behind the load balancer is
+> unhealthy" regardless of which instance ID that happens to be right now.
+> If you specifically want "the whole ASG is unhealthy" coverage beyond
+> that, alarm on `GroupInServiceInstances` (AWS/AutoScaling) instead of a
+> per-instance metric — not covered by this runbook yet.
 
 ---
 
@@ -111,8 +119,8 @@ REGION="<REGION>"                                            # e.g. ap-south-1
 SNS_TOPIC="<SNS_TOPIC_ARN>"                                   # from Prerequisites
 ENVIRONMENT="<ENVIRONMENT>"                                   # dev | stag | production -- see Prerequisites #4
 CLUSTER_NAME="<CLUSTER_NAME>"                                 # e.g. sgm-development-cluster
-INSTANCE_ID="<INSTANCE_ID>"                                   # EC2-launch-type clusters only
-VOLUME_ID="<VOLUME_ID>"                                       # EC2-launch-type clusters only
+INSTANCE_ID="<INSTANCE_ID>"                                   # single fixed instance only -- not an Auto Scaling Group (see Step 1)
+VOLUME_ID="<VOLUME_ID>"                                       # same restriction as INSTANCE_ID above
 LB_DIM="<app/LOAD-BALANCER-NAME/ID>"                          # from describe-target-groups
 
 # One entry per service: service name -> "targetgroup/NAME/ID"
@@ -164,6 +172,9 @@ metric** (0 or 1 per datapoint), not a percentage — use `Maximum` +
 `threshold 0`, not `Average` + `threshold 80` (that combination is nearly
 impossible to trigger and silently fails to catch real throttling).
 
+> Skip this one for an Auto-Scaling-Group cluster (see the note in Step 1) —
+> there's no single fixed volume to point `VOLUME_ID` at.
+
 ```bash
 aws cloudwatch put-metric-alarm \
   --alarm-name "$CLUSTER_NAME Disk Spike" \
@@ -180,6 +191,11 @@ aws cloudwatch put-metric-alarm \
 **Host health** — `StatusCheckFailed` (AWS/EC2). AWS's own "is this host
 actually dead" signal — catches failures CPU/memory/disk won't (e.g. a
 network partition where resource usage looks fine).
+
+> Same skip as **Disk** above for an Auto-Scaling-Group cluster —
+> `INSTANCE_ID` has no single fixed value to point at, and Layer 2's
+> `UnHealthyHostCount` already catches an individual dead instance via the
+> load balancer's own health check.
 
 ```bash
 aws cloudwatch put-metric-alarm \
@@ -562,8 +578,12 @@ gap, not the actual dev infrastructure.
   first; it's not an AWS-managed service and has no native CloudWatch
   metrics.
 - **Synthetic/business layer** — uptime checks / synthetic transactions.
-- **FARGATE-specific host metrics** — this runbook's layer-1 disk/host-health
-  alarms assume EC2 launch type; Fargate clusters skip those two.
+- **Auto-Scaling-Group-level host metrics (e.g. `production`)** — a varying
+  instance count has no single fixed `INSTANCE_ID`/`VOLUME_ID` to alarm on
+  (see the Step 1 note), so this runbook's layer-1 Disk/Host-health alarms
+  don't apply there. Layer 2's per-target-group `UnHealthyHostCount` covers
+  individual bad instances; `GroupInServiceInstances` (AWS/AutoScaling) would
+  cover "the whole ASG is degraded" but isn't set up by this runbook yet.
 - **Log-based alarms (CloudWatch Logs Metric Filters)** — deferred, revisit
   later. Everything above is metric-based; none of it looks inside what the
   app actually logs, so caught/handled errors that never breach a metric

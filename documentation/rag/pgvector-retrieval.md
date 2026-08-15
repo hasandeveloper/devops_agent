@@ -91,26 +91,53 @@ currently deletes incidents, so this is dormant risk, not an active bug.
 ## Write path — `persist_incident()`
 
 `app/services/incident_service.py`, called from `persist_incident_node` right
-after a diagnosis is produced:
+after a diagnosis is produced. The embedding write itself is factored into
+its own helper, `_embed_incident()`:
 
 ```python
-risk_tier = incident.risk_tier.value if hasattr(incident.risk_tier, "value") else incident.risk_tier
-get_vectorstore().add_texts(
-    [f"{incident.title}\n{incident.description}"],
-    metadatas=[{"title": incident.title, "description": incident.description, "risk_tier": risk_tier}],
-    ids=[str(incident.id)],
-)
+def _embed_incident(incident: Incident) -> None:
+    risk_tier = incident.risk_tier.value if hasattr(incident.risk_tier, "value") else incident.risk_tier
+    get_vectorstore().add_texts(
+        [f"{incident.title}\n{incident.description}"],
+        metadatas=[{"title": incident.title, "description": incident.description, "risk_tier": risk_tier}],
+        ids=[str(incident.id)],
+    )
 ```
 
 The `.value` unwrap matters: `incident.risk_tier` loads as a `RiskTier` enum
 instance (from `app/models/incidents.py`), not a plain string. Skipping this
 would store `"RiskTier.high"` in `cmetadata` instead of `"high"`.
 
-This is a **separate write from the `incidents` insert** — its own
+`persist_incident()` calls `_embed_incident()` **unconditionally** — whether
+it just created a new `Incident` row or found an existing one:
+
+```python
+incident = db.execute(select(Incident).filter_by(raw_event_id=raw_event_id)).scalar_one_or_none()
+if incident is None:
+    incident = Incident(...)
+    db.add(incident)
+    ...
+    db.commit()
+_embed_incident(incident)  # runs either way
+```
+
+This is still a **separate write from the `incidents` insert** — its own
 transaction, via `PGVector`'s own session, against the same Postgres
-database. Not atomic with the `incidents` row: if this call fails, the
-incident still exists but has no retrievable embedding. There's no retry or
-reconciliation for that today.
+database — so it's still not atomic with the `incidents` row within a single
+attempt: if `_embed_incident()` raises right after the `incidents` row
+committed, that incident momentarily has no retrievable embedding.
+
+Unlike when this doc was first written, though, that's no longer a permanent
+dead end. `persist_incident()`'s idempotency check (`raw_event_id` lookup) is
+what makes this function safe to call again on a Celery retry (see
+`jobs/webhooks_job.py`'s `self.retry()` and
+`documentation/rds-agent/pipeline-end-to-end.md` for the full retry story) —
+and because `_embed_incident()` still runs even when the incident already
+exists, a retry that reaches this function again *will* re-attempt the
+embedding write. So there's real (if incidental, not purpose-built)
+reconciliation today, gated entirely on something else triggering a retry —
+there's still no dedicated backfill job that goes looking for incidents
+missing an embedding on its own.
 
 ## Read path — `retrieve_similar_incidents`
 
@@ -188,8 +215,10 @@ for doc in retriever.invoke("Dev Aurora CPU Spike AWS/RDS CPUUtilization"):
 
 ## Known limitations / not done here
 
-- Write path isn't transactional with the `incidents` insert (see above).
-- No retry/backfill if an incident's embedding write fails.
+- Write path isn't transactional with the `incidents` insert within a single
+  attempt (see above) — reconciliation only happens if something else causes
+  `persist_incident()` to run again (a Celery retry); there's no standalone
+  backfill job that scans for incidents missing an embedding on its own.
 - `Incident.summary_embedding` is legacy/dead — worth a follow-up migration
   to drop it once this is proven out, not urgent.
 - Only the RDS domain agent uses this so far; the pattern will need to
