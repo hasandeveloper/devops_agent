@@ -6,9 +6,9 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from config import settings
+from config.rate_limiter import is_rate_limited
 from app.models import EventSource
 from app.services.ingestion import store_raw_event
-from app.services.rate_limiter import is_rate_limited
 from jobs.webhooks_job import aws_sns_event_job
 from app.controllers.concerns.webhooks.verifiable import (
     is_trusted_sns_url,

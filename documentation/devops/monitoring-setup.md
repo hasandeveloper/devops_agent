@@ -52,6 +52,14 @@ and application counts accordingly — infra stays fixed at 4.
    yet, see the CloudWatch webhook setup steps already documented for this
    project (create topic → subscribe `/webhooks/cloudwatch` over HTTPS →
    confirm subscription). Have the topic ARN ready before continuing.
+4. **Know which `environment` value this cluster maps to: `dev`, `stag`, or
+   `production`.** Every alarm below gets tagged with it (`--tags
+   Key=environment,Value=...`). This isn't optional decoration — the RDS
+   agent's `get_alarm_environment` tool (`app/agents/domains/rds/mcp_server.py`)
+   reads this exact tag on every alarm to decide which `AppDbConfig` block in
+   `config/settings.py` to connect with, and raises if it's missing. It has
+   to be one of the three values `Settings.app_db_config()` actually knows
+   about (`dev`/`stag`/`production`) — not `staging`, not `prod`.
 
 ---
 
@@ -101,6 +109,7 @@ Fill these in from Step 1's output before running Step 3.
 ```bash
 REGION="<REGION>"                                            # e.g. ap-south-1
 SNS_TOPIC="<SNS_TOPIC_ARN>"                                   # from Prerequisites
+ENVIRONMENT="<ENVIRONMENT>"                                   # dev | stag | production -- see Prerequisites #4
 CLUSTER_NAME="<CLUSTER_NAME>"                                 # e.g. sgm-development-cluster
 INSTANCE_ID="<INSTANCE_ID>"                                   # EC2-launch-type clusters only
 VOLUME_ID="<VOLUME_ID>"                                       # EC2-launch-type clusters only
@@ -131,6 +140,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 1 \
   --threshold 80 --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
+  --tags Key=environment,Value=$ENVIRONMENT \
   --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 ```
 
@@ -145,6 +155,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 1 \
   --threshold 80 --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
+  --tags Key=environment,Value=$ENVIRONMENT \
   --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 ```
 
@@ -162,6 +173,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Maximum --period 300 --evaluation-periods 1 \
   --threshold 0 --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
+  --tags Key=environment,Value=$ENVIRONMENT \
   --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 ```
 
@@ -178,6 +190,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Maximum --period 300 --evaluation-periods 2 \
   --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
   --treat-missing-data notBreaching \
+  --tags Key=environment,Value=$ENVIRONMENT \
   --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 ```
 
@@ -198,6 +211,7 @@ for svc in "${(k@)TG}"; do
     --statistic Maximum --period 60 --evaluation-periods 2 \
     --threshold 0 --comparison-operator GreaterThanThreshold \
     --treat-missing-data notBreaching \
+    --tags Key=environment,Value=$ENVIRONMENT \
     --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 done
 ```
@@ -221,6 +235,7 @@ for svc in "${(k@)TG}"; do
     --statistic Average --period 300 --evaluation-periods 3 \
     --threshold 2 --comparison-operator GreaterThanThreshold \
     --treat-missing-data notBreaching \
+    --tags Key=environment,Value=$ENVIRONMENT \
     --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 done
 ```
@@ -239,6 +254,7 @@ for svc in "${(k@)TG}"; do
     --statistic Sum --period 300 --evaluation-periods 1 \
     --threshold 5 --comparison-operator GreaterThanThreshold \
     --treat-missing-data notBreaching \
+    --tags Key=environment,Value=$ENVIRONMENT \
     --alarm-actions $SNS_TOPIC --ok-actions $SNS_TOPIC --region $REGION
 done
 ```
@@ -383,6 +399,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 2 \
   --threshold 50 --comparison-operator GreaterThanThreshold \
   --treat-missing-data notBreaching \
+  --tags Key=environment,Value=dev \
   --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
 ```
 
@@ -397,6 +414,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 1 \
   --threshold 80 --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
+  --tags Key=environment,Value=dev \
   --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
 ```
 
@@ -413,6 +431,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 2 \
   --threshold 200000000 --comparison-operator LessThanThreshold \
   --treat-missing-data notBreaching \
+  --tags Key=environment,Value=dev \
   --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
 ```
 
@@ -430,6 +449,7 @@ aws cloudwatch put-metric-alarm \
   --statistic Average --period 300 --evaluation-periods 3 \
   --threshold 1.8 --comparison-operator GreaterThanOrEqualToThreshold \
   --treat-missing-data notBreaching \
+  --tags Key=environment,Value=dev \
   --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts --region ap-south-1
 ```
 
@@ -515,6 +535,23 @@ two real gaps, both now fixed:
 on* gets both fixes automatically — this changelog only exists because dev
 was set up before the gaps were found.
 
+## Changelog: environment tag added (2026-08-15)
+
+Every `put-metric-alarm` command in Steps 3 and 6 now includes
+`--tags Key=environment,Value=...`. Cause: the RDS agent's
+`get_alarm_environment` tool (`app/agents/domains/rds/mcp_server.py`) depends
+entirely on this tag to decide which app database to connect to
+(`Settings.app_db_config()` in `config/settings.py`) and raises if it's
+missing — but no command in this runbook ever set it, meaning a new
+environment set up by following these steps literally would break the RDS
+agent on its very first alarm.
+
+**No live backfill needed** — checked all 4 real RDS alarms
+(`Dev Aurora Connections`/`CPU Spike`/`Low Memory`/`ACU Ceiling`) via
+`list-tags-for-resource`; all already carry `environment=dev`, applied
+manually at some point outside this runbook. Only the documentation had the
+gap, not the actual dev infrastructure.
+
 ---
 
 ## Not covered here (deferred)
@@ -567,6 +604,7 @@ was set up before the gaps were found.
 Real values this runbook was first run against, for reference:
 
 - **Region**: `ap-south-1`
+- **Environment**: `dev`
 - **SNS topic**: `arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts`
 - **Cluster**: `sgm-development-cluster`
 - **EC2 instance**: `i-075d4878cffb36797`

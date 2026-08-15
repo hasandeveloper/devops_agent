@@ -5,7 +5,7 @@ worth mocking.
 
 import uuid
 
-from app.services.rate_limiter import is_rate_limited
+from config.rate_limiter import is_rate_limited
 from config.redis_client import get_redis_client
 
 

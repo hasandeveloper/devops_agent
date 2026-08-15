@@ -50,7 +50,7 @@ webhook's response.
    window_seconds=WEBHOOK_RATE_LIMIT_WINDOW_SECONDS)` (default 60 requests /
    60s). Cheapest possible rejection for a flood, real or malicious, before
    spending any effort on it. Backed by Redis (`config/redis_client.py`,
-   `app/services/rate_limiter.py`) — a simple `INCR` + `EXPIRE` fixed window,
+   `config/rate_limiter.py`) — a simple `INCR` + `EXPIRE` fixed window,
    not a sliding window, so a burst right at a window boundary can briefly
    allow close to 2x the limit. That's an accepted tradeoff for a circuit
    breaker, not a precise quota system.
