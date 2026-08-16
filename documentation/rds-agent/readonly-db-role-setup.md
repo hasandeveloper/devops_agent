@@ -7,7 +7,7 @@ setting up a new environment (`stag`/`production`) for this agent.
 
 ## Why this role exists
 
-Three tools in `app/agents/domains/rds/mcp_server.py` — `get_active_connections`,
+Three tools in `app/agents/tools/mcp/rds/mcp_server.py` — `get_active_connections`,
 `get_lock_waits`, `explain_query_for_pid` — connect directly to the monitored
 app's own database (not this project's `devops_agent` database) to run
 diagnostic queries against `pg_stat_activity`/`pg_locks`. That connection

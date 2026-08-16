@@ -55,7 +55,7 @@ and application counts accordingly — infra stays fixed at 4.
 4. **Know which `environment` value this cluster maps to: `dev`, `stag`, or
    `production`.** Every alarm below gets tagged with it (`--tags
    Key=environment,Value=...`). This isn't optional decoration — the RDS
-   agent's `get_alarm_environment` tool (`app/agents/domains/rds/mcp_server.py`)
+   agent's `get_alarm_environment` tool (`app/agents/tools/mcp/rds/mcp_server.py`)
    reads this exact tag on every alarm to decide which `AppDbConfig` block in
    `config/settings.py` to connect with, and raises if it's missing. It has
    to be one of the three values `Settings.app_db_config()` actually knows
@@ -555,7 +555,7 @@ was set up before the gaps were found.
 
 Every `put-metric-alarm` command in Steps 3 and 6 now includes
 `--tags Key=environment,Value=...`. Cause: the RDS agent's
-`get_alarm_environment` tool (`app/agents/domains/rds/mcp_server.py`) depends
+`get_alarm_environment` tool (`app/agents/tools/mcp/rds/mcp_server.py`) depends
 entirely on this tag to decide which app database to connect to
 (`Settings.app_db_config()` in `config/settings.py`) and raises if it's
 missing — but no command in this runbook ever set it, meaning a new

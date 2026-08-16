@@ -13,7 +13,7 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-MCP_SERVERS = {"rds": stdio_server("app.agents.domains.rds.mcp_server")}
+MCP_SERVERS = {"rds": stdio_server("app.agents.tools.mcp.rds.mcp_server")}
 
 # create_agent builds a small internal LangGraph graph that alternates between an
 # "agent" step (LLM decides what to do) and a "tools" step (runs whatever it called).

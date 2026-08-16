@@ -4,8 +4,9 @@ How one CloudWatch alarm actually travels through this system, from the SNS
 notification hitting the webhook to a Slack message landing in the channel —
 every hop, every guardrail, every place something can go wrong and what
 happens when it does. Read this before touching anything under
-`app/agents/domains/rds/`, `jobs/webhooks_job.py`, `config/celery_app.py`, or
-`config/logging.py` — this is the map that ties all of those together.
+`app/agents/domains/rds/`, `app/agents/tools/mcp/rds/mcp_server.py`,
+`jobs/webhooks_job.py`, `config/celery_app.py`, or `config/logging.py` —
+this is the map that ties all of those together.
 
 This project grew a lot of moving parts across one working session (Celery,
 rate limits, timeouts, idempotency, a token budget, tests). Each one exists

@@ -8,7 +8,7 @@ from config.mcp import invoke_tool, stdio_server
 
 logger = logging.getLogger(__name__)
 
-MCP_SERVERS = {"rds": stdio_server("app.agents.domains.rds.mcp_server")}
+MCP_SERVERS = {"rds": stdio_server("app.agents.tools.mcp.rds.mcp_server")}
 
 
 def _parse_mcp_result(result):

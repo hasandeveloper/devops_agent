@@ -6,7 +6,7 @@ earlier in this project's history -- these tests exist so it can't regress silen
 
 import pytest
 
-from app.agents.domains.rds.mcp_server import _explain_safety_violation
+from app.agents.tools.mcp.rds.mcp_server import _explain_safety_violation
 
 
 @pytest.mark.parametrize("query", ["SELECT 1", "select * from foo", "WITH t AS (SELECT 1) SELECT * FROM t"])
