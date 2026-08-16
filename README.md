@@ -40,6 +40,31 @@ fails to import `jobs.webhooks_job` with `ModuleNotFoundError: No module
 named 'jobs'` otherwise. `python -m` always adds the current directory to
 `sys.path`.)
 
+## Run with Docker
+
+The whole stack (Postgres, Redis, the API, the Celery worker, and the
+one-shot `alembic upgrade head` migration) runs via Compose -- no local
+venv or Redis instance required:
+
+```bash
+cp .env.example .env   # fill in OPENAI_API_KEY/SLACK_WEBHOOK_URL/DB_*_READONLY_*/AWS_* etc.
+docker compose up --build
+```
+
+The `worker` container has no host `~/.aws` to fall back on, so
+`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION` must be set in
+`.env` -- every AWS call the RDS MCP server makes (`mcp_server.py`) goes
+through `config/aws.py`'s `get_boto3_client()`, which reads these from
+`Settings` explicitly rather than relying on boto3's own default credential
+chain. `DATABASE_URL` and `CELERY_BROKER_URL`
+are set in `docker-compose.yml` to point at the `postgres`/`redis` service
+names -- everything else (API keys, Slack webhook, app database creds)
+still comes from `.env` via `env_file`.
+
+Postgres is reachable from the host at `localhost:5433` and Redis at
+`localhost:6379`, same ports as the non-Docker setup above, so both setups
+can use the same `.env`.
+
 ## Testing
 
 ```bash

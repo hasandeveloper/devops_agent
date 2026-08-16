@@ -5,11 +5,11 @@ for the alarms this agent diagnoses.
 
 from datetime import datetime, timedelta, timezone
 
-import boto3
 import psycopg
 from mcp.server.fastmcp import FastMCP
 
 from config import settings
+from config.aws import get_boto3_client
 
 mcp = FastMCP("rds-mcp-server")
 
@@ -17,7 +17,7 @@ mcp = FastMCP("rds-mcp-server")
 @mcp.tool()
 def describe_db_cluster(cluster_id: str) -> dict:
     """Read-only: current config/status of an Aurora DB cluster -- scaling range, engine, writer/reader members."""
-    client = boto3.client("rds", region_name=settings.aws_region)
+    client = get_boto3_client("rds")
     resp = client.describe_db_clusters(DBClusterIdentifier=cluster_id)
     cluster = resp["DBClusters"][0]
     return {
@@ -38,7 +38,7 @@ def describe_db_instance(instance_id: str) -> dict:
 
     An Aurora alarm dimensioned by DBInstanceIdentifier (not DBClusterIdentifier)
     needs this first -- describe_db_cluster requires the cluster id, not the instance id."""
-    client = boto3.client("rds", region_name=settings.aws_region)
+    client = get_boto3_client("rds")
     resp = client.describe_db_instances(DBInstanceIdentifier=instance_id)
     instance = resp["DBInstances"][0]
     return {
@@ -57,7 +57,7 @@ def get_recent_metric_trend(
     minutes: int = 30,
 ) -> list[dict]:
     """Read-only: recent datapoints for a CloudWatch metric, so the agent sees the trend, not just the single threshold breach."""
-    client = boto3.client("cloudwatch", region_name=settings.aws_region)
+    client = get_boto3_client("cloudwatch")
     end = datetime.now(timezone.utc)
     start = end - timedelta(minutes=minutes)
     resp = client.get_metric_statistics(
@@ -82,7 +82,7 @@ def get_alarm_environment(alarm_arn: str) -> str:
 
     Alarm tags aren't included in the SNS notification payload -- this is a separate lookup.
     Determines which app database the other DB diagnostic tools should connect to."""
-    client = boto3.client("cloudwatch", region_name=settings.aws_region)
+    client = get_boto3_client("cloudwatch")
     resp = client.list_tags_for_resource(ResourceARN=alarm_arn)
     for tag in resp["Tags"]:
         if tag["Key"] == "environment":
@@ -144,12 +144,12 @@ def get_performance_insights_top_sql(instance_id: str, minutes: int = 60) -> lis
     """Read-only: top SQL by DB load on this instance over the recent window (AWS Performance
     Insights). Statement text is tokenized -- parameter values are stripped, not the literal
     ones passed at runtime -- safe to include verbatim in a diagnosis."""
-    rds_client = boto3.client("rds", region_name=settings.aws_region)
+    rds_client = get_boto3_client("rds")
     dbi_resource_id = rds_client.describe_db_instances(DBInstanceIdentifier=instance_id)["DBInstances"][0][
         "DbiResourceId"
     ]
 
-    pi_client = boto3.client("pi", region_name=settings.aws_region)
+    pi_client = get_boto3_client("pi")
     end = datetime.now(timezone.utc)
     start = end - timedelta(minutes=minutes)
     resp = pi_client.describe_dimension_keys(

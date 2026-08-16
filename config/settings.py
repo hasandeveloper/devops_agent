@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
     slack_webhook_url: str = ""
     aws_region: str = "ap-south-1"
+    # Left blank, config/aws.py falls back to boto3's own default credential chain (a
+    # configured AWS CLI profile, instance role, etc.) -- set these when there's no
+    # such fallback available, e.g. inside the Docker containers in docker-compose.yml.
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
 
     # LLM provider -- swap by changing llm_provider (+ matching api key/model), no agent code changes needed.
     llm_provider: str = "openai"  # "openai" | "anthropic"
