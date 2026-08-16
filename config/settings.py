@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 60.0
     # investigate_further.py's ReAct loop is the only place an LLM decides how many
     # times to call tools -- recursion_limit already bounds the number of round trips,
-    # this bounds the actual cost of them. See app/agents/shared/token_budget.py for
+    # this bounds the actual cost of them. See config/reliability/token_budget.py for
     # why this is checked after the loop finishes, not used to interrupt it mid-flight.
     max_investigation_tokens: int = 20000
     openai_api_key: str = ""

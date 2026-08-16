@@ -4,7 +4,8 @@ import logging
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from app.agents.shared.state.agent import AgentState
-from config.mcp import invoke_tool, stdio_server
+from config.mcp import stdio_server
+from config.reliability.mcp_timeouts import invoke_tool
 
 logger = logging.getLogger(__name__)
 

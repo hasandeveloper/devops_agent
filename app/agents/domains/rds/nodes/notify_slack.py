@@ -3,7 +3,7 @@ import uuid
 
 from app.agents.shared.state.agent import AgentState
 from app.services.incident_service import is_incident_notified, mark_incident_notified
-from app.services.slack_notifier import post_diagnosis
+from app.services.slack_service import post_diagnosis
 from db import SessionLocal
 
 logger = logging.getLogger(__name__)

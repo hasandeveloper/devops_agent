@@ -51,7 +51,7 @@ webhook's response.
    window_seconds=WEBHOOK_RATE_LIMIT_WINDOW_SECONDS)` (default 60 requests /
    60s). Cheapest possible rejection for a flood, real or malicious, before
    spending any effort on it. Backed by Redis (`config/redis_client.py`,
-   `config/rate_limiter.py`) — a simple `INCR` + `EXPIRE` fixed window,
+   `config/reliability/rate_limiter.py`) — a simple `INCR` + `EXPIRE` fixed window,
    not a sliding window, so a burst right at a window boundary can briefly
    allow close to 2x the limit. That's an accepted tradeoff for a circuit
    breaker, not a precise quota system.
@@ -122,8 +122,9 @@ any node raises propagates straight up to `webhooks_job.py`'s handling above.
 
 Calls the RDS MCP server (`mcp_server.py`, spawned as its own subprocess) for
 cluster info, recent metric trend, the alarm's `environment` tag, active
-connections, and lock waits. Every call goes through `config/mcp.py`'s
-`invoke_tool()`, which wraps it in `asyncio.wait_for(..., timeout=30)` — a
+connections, and lock waits. Every call goes through
+`config/reliability/mcp_timeouts.py`'s `invoke_tool()`, which wraps it in
+`asyncio.wait_for(..., timeout=30)` — a
 stalled AWS API call or a wedged database connection can't hang the whole
 pipeline (or the worker slot) forever.
 
@@ -165,14 +166,17 @@ specifically because of that open-endedness:
 1. **`recursion_limit=9`** on `agent.ainvoke(...)` — caps the total number of
    agent/tool round trips (roughly 4 tool calls + 1 final answer). Hit it,
    and LangGraph raises `GraphRecursionError`.
-2. **`with_timeout()`** wraps both tools (`config/mcp.py`) so the *agent's own*
-   tool calls — which our code never invokes directly — still can't hang
-   forever. (`invoke_tool()`, used in `gather_context`, only covers calls
-   *we* make explicitly; this covers calls the *agent* makes on its own.)
-3. **`TokenBudgetTracker`** (`app/agents/shared/token_budget.py`) accumulates
-   token usage across every LLM call in the loop via a LangChain callback,
-   then `token_tracker.check()` is called *after* the loop returns, raising
-   `TokenBudgetExceeded` if the total crossed `MAX_INVESTIGATION_TOKENS`
+2. **`with_timeout()`** wraps both tools (`config/reliability/mcp_timeouts.py`)
+   so the *agent's own* tool calls — which our code never invokes directly —
+   still can't hang forever. (`invoke_tool()`, used in `gather_context`, only
+   covers calls *we* make explicitly; this covers calls the *agent* makes on
+   its own.)
+3. **`TokenBudgetTracker`** (`config/reliability/token_budget.py` — grouped
+   there with the other cost/reliability guardrails: MCP timeouts and both
+   rate limits) accumulates token usage across every LLM call in the loop via
+   a LangChain callback, then `token_tracker.check()` is called *after* the
+   loop returns, raising `TokenBudgetExceeded` if the total crossed
+   `MAX_INVESTIGATION_TOKENS`
    (default 20,000).
 
 **Important, non-obvious limitation of #3, confirmed empirically, not

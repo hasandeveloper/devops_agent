@@ -5,8 +5,8 @@ worth mocking.
 
 import uuid
 
-from config.rate_limiter import is_rate_limited
 from config.redis_client import get_redis_client
+from config.reliability.rate_limiter import is_rate_limited
 
 
 def _unique_key() -> str:

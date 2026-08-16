@@ -3,8 +3,8 @@ import logging
 import uuid
 
 from app.agents import supervisor
-from app.agents.shared.token_budget import TokenBudgetExceeded
 from config.celery_app import celery_app
+from config.reliability.token_budget import TokenBudgetExceeded
 
 logger = logging.getLogger(__name__)
 
