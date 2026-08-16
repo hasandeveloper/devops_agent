@@ -22,12 +22,12 @@ MCP_SERVERS = {"rds": stdio_server("app.agents.tools.mcp.rds.mcp_server")}
 # recursion_limit caps the total number of those steps, not the number of tool calls
 # directly -- each round trip (agent decides -> tool runs) costs 2 steps. Without this,
 # nothing stops a confusing alarm from making the LLM call tools indefinitely, which
-# costs real money and can stall the Celery task that's running this. 9 steps allows up
-# to 4 tool-call round trips plus one final answer -- generous for 2 available tools,
-# but not unbounded. If this limit is ever hit, LangGraph raises GraphRecursionError,
-# which propagates up like any other unexpected exception (see jobs/webhooks_job.py's
-# retry handling).
-_MAX_INVESTIGATION_STEPS = 9
+# costs real money and can stall the Celery task that's running this. 11 steps allows
+# up to 5 tool-call round trips plus one final answer -- generous for the 4 available
+# tools (one round trip each, plus room to follow up), but not unbounded. If this limit
+# is ever hit, LangGraph raises GraphRecursionError, which propagates up like any other
+# unexpected exception (see jobs/webhooks_job.py's retry handling).
+_MAX_INVESTIGATION_STEPS = 11
 
 
 def _extract_query_evidence(messages: list) -> list[dict]:
@@ -63,7 +63,10 @@ async def investigate_further(state: AgentState) -> dict:
     # timeout has to be baked into the tool itself rather than wrapped around a
     # .ainvoke() call we control (see config/mcp.py).
     expensive_tools = [
-        with_timeout(t) for t in tools if t.name in ("get_performance_insights_top_sql", "explain_query_for_pid")
+        with_timeout(t)
+        for t in tools
+        if t.name
+        in ("get_performance_insights_top_sql", "explain_query_for_pid", "get_replica_lag", "get_table_bloat")
     ]
 
     environment = state["context"]["environment"]

@@ -56,3 +56,11 @@ def test_investigation_prompt_includes_environment():
 def test_investigation_prompt_warns_against_treating_data_as_instructions():
     prompt = investigation.build_prompt("dev")
     assert "not instructions" in prompt
+
+
+def test_investigation_prompt_mentions_all_available_tools():
+    prompt = investigation.build_prompt("dev")
+    assert "get_performance_insights_top_sql" in prompt
+    assert "explain_query_for_pid" in prompt
+    assert "get_replica_lag" in prompt
+    assert "get_table_bloat" in prompt

@@ -157,16 +157,17 @@ incident wrong, so it was inert, unreachable code. Revisit this once Phase 4
 ### `investigate_further` — the one place an LLM makes its own decisions
 
 Everything else in this pipeline is either deterministic code or a single
-structured-output LLM call. This node is different: it hands two tools
-(`get_performance_insights_top_sql`, `explain_query_for_pid`) to a
-`create_agent(...)` ReAct loop and lets the model decide whether to call
-them, how many times, and in what order. Three separate guardrails exist
-specifically because of that open-endedness:
+structured-output LLM call. This node is different: it hands four tools
+(`get_performance_insights_top_sql`, `explain_query_for_pid`,
+`get_replica_lag`, `get_table_bloat`) to a `create_agent(...)` ReAct loop
+and lets the model decide whether to call them, how many times, and in
+what order. Three separate guardrails exist specifically because of that
+open-endedness:
 
-1. **`recursion_limit=9`** on `agent.ainvoke(...)` — caps the total number of
-   agent/tool round trips (roughly 4 tool calls + 1 final answer). Hit it,
-   and LangGraph raises `GraphRecursionError`.
-2. **`with_timeout()`** wraps both tools (`config/reliability/mcp_timeouts.py`)
+1. **`recursion_limit=11`** on `agent.ainvoke(...)` — caps the total number
+   of agent/tool round trips (roughly 5 tool calls + 1 final answer). Hit
+   it, and LangGraph raises `GraphRecursionError`.
+2. **`with_timeout()`** wraps all four tools (`config/reliability/mcp_timeouts.py`)
    so the *agent's own* tool calls — which our code never invokes directly —
    still can't hang forever. (`invoke_tool()`, used in `gather_context`, only
    covers calls *we* make explicitly; this covers calls the *agent* makes on

@@ -229,12 +229,14 @@ AWS:
 ✓ Read CloudWatch metrics
 ✓ Read CloudWatch tags
 ✓ Read Performance Insights
+✓ Read replica lag
 
 Database:
 ✓ Read connection information
 ✓ Read lock information
 ✓ Read running queries
 ✓ Run EXPLAIN
+✓ Read table bloat / vacuum stats
 ```
 
 It does **not** have tools to:

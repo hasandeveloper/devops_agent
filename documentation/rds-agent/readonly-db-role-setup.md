@@ -7,13 +7,13 @@ setting up a new environment (`stag`/`production`) for this agent.
 
 ## Why this role exists
 
-Three tools in `app/agents/tools/mcp/rds/mcp_server.py` — `get_active_connections`,
-`get_lock_waits`, `explain_query_for_pid` — connect directly to the monitored
-app's own database (not this project's `devops_agent` database) to run
-diagnostic queries against `pg_stat_activity`/`pg_locks`. That connection
-must never use the app's own superuser/full-access credentials — this is a
+Four tools in `app/agents/tools/mcp/rds/mcp_server.py` — `get_active_connections`,
+`get_lock_waits`, `explain_query_for_pid`, `get_table_bloat` — connect directly to
+the monitored app's own database (not this project's `devops_agent` database) to run
+diagnostic queries against `pg_stat_activity`/`pg_locks`/`pg_stat_user_tables`. That
+connection must never use the app's own superuser/full-access credentials — this is a
 standing rule for this codebase, not a suggestion. `devops_agent_readonly` is
-a dedicated role scoped to exactly what those three tools need: read the
+a dedicated role scoped to exactly what those four tools need: read the
 data, nothing else. It can't write, can't alter schema, can't create roles.
 
 ## Commands

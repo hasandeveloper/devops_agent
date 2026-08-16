@@ -77,6 +77,35 @@ def get_recent_metric_trend(
 
 
 @mcp.tool()
+def get_replica_lag(instance_id: str) -> dict:
+    """Read-only: how far behind (in milliseconds) a reader instance is from the cluster's
+    writer, via the AuroraReplicaLag CloudWatch metric. Only meaningful for reader instances --
+    pass a member from describe_db_cluster's 'members' where is_writer is false."""
+    client = get_boto3_client("cloudwatch")
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(minutes=10)
+    resp = client.get_metric_statistics(
+        Namespace="AWS/RDS",
+        MetricName="AuroraReplicaLag",
+        Dimensions=[{"Name": "DBInstanceIdentifier", "Value": instance_id}],
+        StartTime=start,
+        EndTime=end,
+        Period=60,
+        Statistics=["Average", "Maximum"],
+    )
+    datapoints = sorted(resp["Datapoints"], key=lambda d: d["Timestamp"])
+    if not datapoints:
+        return {"instance_id": instance_id, "lag_ms": None, "note": "no datapoints -- is this actually a reader instance?"}
+    latest = datapoints[-1]
+    return {
+        "instance_id": instance_id,
+        "lag_ms": latest["Average"],
+        "max_lag_ms": latest["Maximum"],
+        "timestamp": latest["Timestamp"].isoformat(),
+    }
+
+
+@mcp.tool()
 def get_alarm_environment(alarm_arn: str) -> str:
     """Read-only: the "environment" tag value (dev/stag/production) on a CloudWatch alarm.
 
@@ -137,6 +166,34 @@ def get_lock_waits(environment: str) -> list[dict]:
         """)
         columns = [desc[0] for desc in cur.description]
         return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+@mcp.tool()
+def get_table_bloat(environment: str) -> list[dict]:
+    """Read-only: tables with the most dead tuples relative to live rows, and when they were
+    last vacuumed. A high dead-tuple ratio causes sequential scans and bad query plans that can
+    look identical to "expensive query" in Performance Insights, but the fix (vacuum) is
+    completely different from a query-tuning fix."""
+    with _connect_app_db(environment) as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT relname, n_live_tup, n_dead_tup, last_autovacuum, last_vacuum
+            FROM pg_stat_user_tables
+            WHERE n_dead_tup > 0
+            ORDER BY n_dead_tup DESC
+            LIMIT 10
+        """)
+        rows = []
+        for relname, n_live_tup, n_dead_tup, last_autovacuum, last_vacuum in cur.fetchall():
+            total = n_live_tup + n_dead_tup
+            rows.append({
+                "table_name": relname,
+                "n_live_tup": n_live_tup,
+                "n_dead_tup": n_dead_tup,
+                "dead_pct": round(n_dead_tup / total * 100, 1) if total else None,
+                "last_autovacuum": last_autovacuum.isoformat() if last_autovacuum else None,
+                "last_vacuum": last_vacuum.isoformat() if last_vacuum else None,
+            })
+        return rows
 
 
 @mcp.tool()
