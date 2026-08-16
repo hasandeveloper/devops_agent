@@ -93,3 +93,14 @@ pytest -m llm tests/eval   # golden-dataset regression check for diagnose()'s LL
   carries a `pgvector` `summary_embedding` column populated once diagnosis
   (Phase 2/3) generates a summary, used for similarity search against past
   incidents.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, running tests, and
+how to submit a change. Participation is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md). Found a security issue? See
+[SECURITY.md](SECURITY.md) rather than opening a public issue.
+
+## License
+
+[MIT](LICENSE)
