@@ -1,8 +1,34 @@
+import json
 import os
 import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def parse_mcp_result(result):
+    """MCP tool results arrive as a list of {"type": "text", "text": "..."} blocks --
+    one block per returned item. Unwrap to the plain Python value the tool actually returned.
+
+    A dict/list-returning tool's text is JSON-encoded (e.g. '{"status": "ok"}'); a plain
+    str-returning tool's text is the bare string itself (e.g. "dev", not '"dev"') -- confirmed
+    empirically, FastMCP doesn't JSON-encode primitive string returns. json.loads fails on the
+    latter, so fall back to the raw text rather than assuming every tool's output is JSON.
+
+    Also what a ToolMessage.content looks like when a ReAct agent calls an MCP tool on its
+    own (see investigate_further.py) -- same shape, same unwrap logic applies there too.
+    """
+
+    def _parse_one(text):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return text
+
+    if isinstance(result, list) and result and all(isinstance(item, dict) and "text" in item for item in result):
+        parsed = [_parse_one(item["text"]) for item in result]
+        return parsed[0] if len(parsed) == 1 else parsed
+    return result
 
 
 def stdio_server(module_path: str) -> dict:

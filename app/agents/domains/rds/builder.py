@@ -37,6 +37,7 @@ async def handle(raw_event: dict) -> str:
             "context": None,
             "similar_incidents": None,
             "investigation": None,
+            "query_evidence": None,
             "diagnosis": None,
             "incident_id": None,
             "slack_message_ts": None,

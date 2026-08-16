@@ -2,12 +2,13 @@ import json
 import logging
 
 from langchain.agents import create_agent
+from langchain_core.messages import ToolMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from app.agents.shared.state.agent import AgentState
 from app.prompts.rds.investigation import build_prompt
 from config.llm import get_llm
-from config.mcp import stdio_server
+from config.mcp import parse_mcp_result, stdio_server
 from config.reliability.mcp_timeouts import with_timeout
 from config.reliability.token_budget import TokenBudgetTracker
 from config.settings import settings
@@ -27,6 +28,32 @@ MCP_SERVERS = {"rds": stdio_server("app.agents.tools.mcp.rds.mcp_server")}
 # which propagates up like any other unexpected exception (see jobs/webhooks_job.py's
 # retry handling).
 _MAX_INVESTIGATION_STEPS = 9
+
+
+def _extract_query_evidence(messages: list) -> list[dict]:
+    """Pull the exact SQL text out of this investigation's tool calls, straight from the
+    MCP tool results -- not the LLM's paraphrase of them. Posted to Slack alongside the
+    diagnosis so "which query is actually causing this" doesn't require re-querying AWS
+    by hand after the fact.
+
+    Deliberately narrow: only the single highest-load statement from
+    get_performance_insights_top_sql (that tool already returns up to 10, sorted by
+    load -- showing all of them would make the Slack message unreadable), and only the
+    query text from explain_query_for_pid, never its full JSON query plan (large,
+    deeply nested, not something you can usefully skim in a Slack message).
+    """
+    evidence = []
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        result = parse_mcp_result(msg.content)
+        if msg.name == "get_performance_insights_top_sql" and result:
+            top = result[0] if isinstance(result, list) else result
+            if top.get("statement"):
+                evidence.append({"tool": msg.name, "query": top["statement"]})
+        elif msg.name == "explain_query_for_pid" and isinstance(result, dict) and result.get("query"):
+            evidence.append({"tool": msg.name, "query": result["query"]})
+    return evidence
 
 
 async def investigate_further(state: AgentState) -> dict:
@@ -55,12 +82,14 @@ async def investigate_further(state: AgentState) -> dict:
     token_tracker.check()
 
     tools_called = [call["name"] for msg in result["messages"] for call in getattr(msg, "tool_calls", [])]
+    query_evidence = _extract_query_evidence(result["messages"])
     logger.info(
-        "raw_event_id=%s environment=%s tools_called=%s tokens_used=%d",
+        "raw_event_id=%s environment=%s tools_called=%s tokens_used=%d query_evidence=%d",
         state["raw_event"]["id"],
         environment,
         tools_called or "none",
         token_tracker.total_tokens,
+        len(query_evidence),
     )
 
-    return {"investigation": result["messages"][-1].content}
+    return {"investigation": result["messages"][-1].content, "query_evidence": query_evidence}
