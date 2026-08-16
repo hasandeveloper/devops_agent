@@ -126,6 +126,12 @@ connections, and lock waits. Every call goes through `config/mcp.py`'s
 stalled AWS API call or a wedged database connection can't hang the whole
 pipeline (or the worker slot) forever.
 
+The active-connections/lock-waits/explain-query tools connect to the
+monitored app's own database using a dedicated read-only role
+(`devops_agent_readonly`), never the app's own superuser credentials — see
+`documentation/rds-agent/readonly-db-role-setup.md` for exactly how that role
+is created and what it's granted.
+
 `_parse_mcp_result` unwraps whatever text the MCP tool returned, falling back
 to raw text if it isn't JSON — a real bug shipped here once (assumed
 everything was JSON-encoded, broke on a bare string), now covered by
