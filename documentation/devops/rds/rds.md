@@ -690,7 +690,66 @@ This should eventually be tuned against real workload behavior.
 
 ---
 
-# 17. Why There Is No `FreeStorageSpace` Alarm
+# 17. How Long Until You're Actually Notified
+
+Each alarm's `--period`/`--evaluation-periods` sets a minimum evaluation
+window before the alarm can even transition to `ALARM` — this is not
+optional overhead, it's what prevents a single noisy datapoint from firing
+a false alarm.
+
+| Alarm       | Period | Evaluation periods | Minimum evaluation window |
+| ----------- | -----: | ------------------: | -------------------------: |
+| CPU Spike   |  5 min |                    1 |                     ~5 min |
+| Connections |  5 min |                    2 |                    ~10 min |
+| Low Memory  |  5 min |                    2 |                    ~10 min |
+| ACU Ceiling |  5 min |                    3 |                    ~15 min |
+
+This assumes the underlying condition is sustained continuously through
+every period in the window — a spike that lasts 2 minutes and then drops
+won't breach even a single 5-minute period.
+
+The evaluation window is only part of the real end-to-end latency:
+
+```text
+Spike starts
+     │
+     ▼
+CloudWatch publishes the breaching datapoint(s)
+     │   (the evaluation window above, plus CloudWatch's own
+     │    publish lag -- typically another minute or two beyond
+     │    the period itself, not something this project controls)
+     ▼
+Alarm transitions to ALARM
+     │
+     ▼
+SNS delivers the notification            (seconds)
+     │
+     ▼
+Webhook stores raw_event, queues Celery  (near-instant)
+     │
+     ▼
+gather_context → retrieve_similar_incidents
+→ investigate_further → diagnose         (~15-30 seconds, observed)
+     │
+     ▼
+Slack message posted
+```
+
+For CPU Spike specifically (the fastest-configured alarm), realistic total
+latency from spike onset to a Slack message is closer to **~6-8 minutes**,
+not the ~5 minutes the evaluation window alone suggests. For ACU Ceiling,
+closer to **~16-18 minutes**.
+
+`--evaluation-periods` (and `--period`, if the underlying metric supports
+finer granularity) is the lever for trading detection speed against false
+positives. CPU Spike is deliberately set to fire on a single period because
+CPU spikes are usually worth reacting to fast; ACU Ceiling's 3-period
+requirement is deliberate too, since Aurora Serverless v2's normal
+scale-up/down behavior would otherwise trip it on noise.
+
+---
+
+# 18. Why There Is No `FreeStorageSpace` Alarm
 
 Aurora storage behaves differently from a traditional fixed-size EBS-backed database volume.
 
@@ -715,7 +774,7 @@ ACU capacity
 
 ---
 
-# 18. Why There Is No `AuroraReplicaLag` Alarm
+# 19. Why There Is No `AuroraReplicaLag` Alarm
 
 `AuroraReplicaLag` is useful when the Aurora cluster has reader instances and replication needs to be monitored.
 
@@ -750,7 +809,7 @@ If readers are introduced later, reconsider adding replica-lag monitoring.
 
 ---
 
-# 19. Verify All Four Alarms
+# 20. Verify All Four Alarms
 
 Run:
 
@@ -777,7 +836,7 @@ $ENVIRONMENT Aurora ACU Ceiling
 
 ---
 
-# 20. Verify Alarm Configuration
+# 21. Verify Alarm Configuration
 
 To inspect the complete configuration:
 
@@ -805,7 +864,7 @@ Also verify the environment tag.
 
 ---
 
-# 21. Verify the Environment Tag
+# 22. Verify the Environment Tag
 
 The RDS diagnosis agent uses the alarm's `environment` tag to determine which application database it should connect to.
 
@@ -836,7 +895,7 @@ Value: dev
 
 ---
 
-# 22. Test the Four Alarms End-to-End
+# 23. Test the Four Alarms End-to-End
 
 CloudWatch allows us to manually force an alarm into the `ALARM` state.
 
@@ -853,7 +912,7 @@ Before testing, make sure:
 
 ---
 
-# 23. Trigger the Four Alarms
+# 24. Trigger the Four Alarms
 
 Set the alarm names:
 
@@ -888,7 +947,7 @@ It only forces the CloudWatch alarm state for testing.
 
 ---
 
-# 24. Verify SNS/Webhook Delivery
+# 25. Verify SNS/Webhook Delivery
 
 After triggering the alarms, check the application's `raw_events` table.
 
@@ -924,7 +983,7 @@ You should see four new CloudWatch events.
 
 ---
 
-# 25. Verify the Diagnosis Pipeline
+# 26. Verify the Diagnosis Pipeline
 
 Receiving the event in `raw_events` confirms:
 
@@ -986,7 +1045,7 @@ and verify that the resulting diagnosis reaches Slack.
 
 ---
 
-# 26. Reset the Alarms to OK
+# 27. Reset the Alarms to OK
 
 After testing, reset the alarms:
 
@@ -1008,7 +1067,7 @@ CloudWatch will evaluate the real metric data again.
 
 ---
 
-# 27. Verify Recovery Notifications
+# 28. Verify Recovery Notifications
 
 Because every alarm includes:
 
@@ -1048,7 +1107,7 @@ events.
 
 ---
 
-# 28. Threshold Tuning
+# 29. Threshold Tuning
 
 The thresholds in this document are **starting defaults**, not final production values.
 
@@ -1067,7 +1126,7 @@ These values should eventually be based on actual workload and historical CloudW
 
 ---
 
-# 29. Recommended Production Tuning Process
+# 30. Recommended Production Tuning Process
 
 ## Step 1 — Observe Normal Traffic
 
@@ -1128,7 +1187,7 @@ If alarms trigger frequently without an actual incident, tune:
 
 ---
 
-# 30. Environment Isolation
+# 31. Environment Isolation
 
 Each environment should have a clear relationship between:
 
@@ -1172,7 +1231,7 @@ The `environment` tag must therefore be correct.
 
 ---
 
-# 31. Important Shared-Cluster Limitation
+# 32. Important Shared-Cluster Limitation
 
 CloudWatch RDS metrics are associated with the RDS instance/cluster, not individual PostgreSQL databases inside the instance.
 
@@ -1237,7 +1296,7 @@ when environment-specific automated diagnosis is required.
 
 ---
 
-# 32. Current Known Limitations
+# 33. Current Known Limitations
 
 ## 32.1 Connection Threshold Is Not Dynamically Calculated
 
@@ -1313,7 +1372,7 @@ Storage monitoring can be revisited if the architecture or operational requireme
 
 ---
 
-# 33. Verification Checklist
+# 34. Verification Checklist
 
 Use this checklist when configuring a new environment.
 
@@ -1356,7 +1415,7 @@ Use this checklist when configuring a new environment.
 
 ---
 
-# 34. Quick Setup
+# 35. Quick Setup
 
 For an already-known Aurora Serverless v2 cluster:
 
@@ -1419,7 +1478,7 @@ Verify recovery event
 
 ---
 
-# 35. Final Architecture
+# 36. Final Architecture
 
 ```text
                  Aurora PostgreSQL
