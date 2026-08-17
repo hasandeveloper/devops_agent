@@ -215,15 +215,54 @@ recovery `OK` state.
 ## 9. Testing End-to-End
 
 The real way to generate a validly-signed SNS message locally is to let SNS
-itself send one, by forcing a real alarm state change:
+itself send one, by forcing a real alarm state change. This requires a
+CloudWatch alarm to **already exist** — `set-alarm-state` forces the state
+of an existing alarm, it does not create one.
+
+### 9.1 Use an existing alarm, or create a minimal test one
+
+If an alarm already exists (e.g. from `documentation/devops/rds/rds.md`'s
+setup), skip ahead to 9.2 and use its name.
+
+Otherwise, create a throwaway alarm just for this test — any metric works,
+since `set-alarm-state` overrides whatever the real data says. This one
+needs no real resource behind it (`sgm-backend-dev-stage-mb-01-instance-1`
+is only used as a dimension value, not actually queried until CloudWatch
+next evaluates the metric on its own):
+
+```bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "SNS Test Alarm" \
+  --namespace "AWS/RDS" \
+  --metric-name CPUUtilization \
+  --dimensions Name=DBInstanceIdentifier,Value=sgm-backend-dev-stage-mb-01-instance-1 \
+  --statistic Average \
+  --period 300 \
+  --evaluation-periods 1 \
+  --threshold 80 \
+  --comparison-operator GreaterThanThreshold \
+  --treat-missing-data notBreaching \
+  --tags Key=environment,Value=dev \
+  --alarm-actions "$TOPIC_ARN" \
+  --ok-actions "$TOPIC_ARN" \
+  --region "$REGION"
+```
+
+Delete it once you're done testing (`aws cloudwatch delete-alarms
+--alarm-names "SNS Test Alarm" --region "$REGION"`) — it isn't meant to
+monitor anything real.
+
+### 9.2 Force the alarm state
 
 ```bash
 aws cloudwatch set-alarm-state \
-  --alarm-name "Dev Aurora CPU Spike" \
+  --alarm-name "SNS Test Alarm" \
   --state-value ALARM \
   --state-reason "manual SNS test" \
   --region "$REGION"
 ```
+
+(Substitute the real alarm's name from 9.1 if you used an existing one.)
 
 With the tunnel running and the subscription confirmed, this should:
 
