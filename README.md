@@ -591,9 +591,9 @@ For deeper technical details:
 
 | Document | Purpose |
 |---|---|
+| `documentation/devops/rds/rds.md` | How to configure CloudWatch alarms for RDS/Aurora (connections, CPU, memory, ACU capacity) |
 | `documentation/rds-agent/1.your-rds-readonly-db-role-setup.md` | How the read-only database user is configured |
 | `documentation/rds-agent/2.how-agent-pipeline-works-end-to-end.md` | How the RDS investigation works from start to finish |
-| `documentation/devops/rds/rds.md` | How to configure CloudWatch alarms for RDS/Aurora (connections, CPU, memory, ACU capacity) |
 | `documentation/rag/pgvector-retrieval.md` | How similar incidents are stored and retrieved |
 
 # 🤝 Contributing
