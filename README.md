@@ -600,6 +600,7 @@ For deeper technical details follow these below sequencial order:
 | Document | Purpose |
 |---|---|
 | `documentation/devops/sns/sns.md` | How to create/subscribe/register the SNS topic that delivers alarms to this app |
+| `documentation/devops/slack/slack.md` | How to create the Slack Incoming Webhook and choose which channel gets diagnoses |
 | `documentation/devops/rds/rds.md` | How to configure CloudWatch alarms for RDS/Aurora (connections, CPU, memory, ACU capacity) |
 | `documentation/rds-agent/1.your-rds-readonly-db-role-setup.md` | How the read-only database user is configured |
 | `documentation/rds-agent/2.how-agent-pipeline-works-end-to-end.md` | How the RDS investigation works from start to finish |
