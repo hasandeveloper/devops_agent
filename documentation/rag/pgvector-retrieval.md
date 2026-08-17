@@ -131,7 +131,7 @@ Unlike when this doc was first written, though, that's no longer a permanent
 dead end. `persist_incident()`'s idempotency check (`raw_event_id` lookup) is
 what makes this function safe to call again on a Celery retry (see
 `jobs/webhooks_job.py`'s `self.retry()` and
-`documentation/rds-agent/pipeline-end-to-end.md` for the full retry story) —
+`documentation/rds-agent/2.how-agent-pipeline-works-end-to-end.md` for the full retry story) —
 and because `_embed_incident()` still runs even when the incident already
 exists, a retry that reaches this function again *will* re-attempt the
 embedding write. So there's real (if incidental, not purpose-built)
