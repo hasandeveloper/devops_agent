@@ -1313,42 +1313,7 @@ Storage monitoring can be revisited if the architecture or operational requireme
 
 ---
 
-# 33. Current Development Environment
-
-The initial RDS alarm setup was performed against:
-
-```text
-Environment:
-dev
-
-Region:
-ap-south-1
-
-Aurora Cluster:
-sgm-backend-dev-stage-mb-01
-
-Writer Instance:
-sgm-backend-dev-stage-mb-01-instance-1
-
-Serverless v2:
-0.5 – 2.0 ACU
-
-SNS Topic:
-devops-agent-alerts
-```
-
-The four alarms are:
-
-```text
-Dev Aurora Connections
-Dev Aurora CPU Spike
-Dev Aurora Low Memory
-Dev Aurora ACU Ceiling
-```
-
----
-
-# 34. Verification Checklist
+# 33. Verification Checklist
 
 Use this checklist when configuring a new environment.
 
@@ -1391,7 +1356,7 @@ Use this checklist when configuring a new environment.
 
 ---
 
-# 35. Quick Setup
+# 34. Quick Setup
 
 For an already-known Aurora Serverless v2 cluster:
 
@@ -1454,7 +1419,7 @@ Verify recovery event
 
 ---
 
-# 36. Final Architecture
+# 35. Final Architecture
 
 ```text
                  Aurora PostgreSQL

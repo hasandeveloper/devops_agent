@@ -394,6 +394,14 @@ documentation/
 
 # 🚀 Quick Start
 
+> **A public tunnel (e.g. [ngrok](https://ngrok.com)) is required for local development.**
+> AWS SNS delivers CloudWatch alarms over HTTPS to a public URL — it cannot
+> reach `localhost`. To receive real alarms locally (either setup below),
+> run something like `ngrok http 8000` and point your SNS subscription at the
+> resulting `https://...ngrok-free.app/webhooks/cloudwatch` URL instead of
+> `localhost:8000`. Without this, everything else works, but no CloudWatch
+> alarm will ever reach your machine.
+
 ## Option 1 — Docker
 
 The easiest way to run the complete system is:
