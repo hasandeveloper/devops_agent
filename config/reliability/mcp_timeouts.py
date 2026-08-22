@@ -9,7 +9,15 @@ from langchain_core.tools import BaseTool
 # has no per-task timeout configured either, that worker slot stays stuck
 # indefinitely. Use invoke_tool()/with_timeout() below wherever a tool gets called,
 # instead of calling .ainvoke() directly.
-MCP_TOOL_TIMEOUT_SECONDS = 30
+#
+# Was 30s; raised after measuring psycopg.connect() itself (not the query -- the
+# lock_waits query runs in ~0.2s once connected) taking anywhere from ~1.4s to 35.8s
+# against the real dev Aurora cluster across repeated attempts, for reasons that
+# didn't trace to SSL negotiation, IPv6, or DNS (all checked and ruled out) --
+# apparently just network/connection-setup variance on this path. 30s was regularly
+# tripped by connection setup alone, before any query ran. This is a stopgap for that
+# observed variance, not a fix for its root cause.
+MCP_TOOL_TIMEOUT_SECONDS = 60
 
 
 async def invoke_tool(tool: BaseTool, args: dict):

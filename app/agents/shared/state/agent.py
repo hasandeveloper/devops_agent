@@ -8,7 +8,7 @@ class AgentState(TypedDict):
     raw_event (input) -> context (gather_context) -> similar_incidents
     (retrieve_similar_incidents) -> investigation + query_evidence
     (investigate_further) -> diagnosis (diagnose) -> incident_id
-    (persist_incident) -> slack_message_ts (notify_slack).
+    (persist_incident) -> remediation (propose_remediation) -> slack_message_ts (notify_slack).
     """
 
     raw_event: dict
@@ -21,4 +21,8 @@ class AgentState(TypedDict):
     query_evidence: Optional[list[dict]]
     diagnosis: Optional[dict]
     incident_id: Optional[str]
+    # Proposed cancel-query candidates from propose_remediation, one dict per flagged pid
+    # (id/pid/duration_seconds/query/rationale) -- None if nothing was proposed. Rendered
+    # as Approve/Reject buttons in notify_slack.py.
+    remediation: Optional[list[dict]]
     slack_message_ts: Optional[str]

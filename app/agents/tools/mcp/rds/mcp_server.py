@@ -197,6 +197,39 @@ def get_table_bloat(environment: str) -> list[dict]:
 
 
 @mcp.tool()
+def get_long_running_queries(environment: str, min_duration_seconds: int = 60) -> list[dict]:
+    """Read-only: currently active queries running longer than min_duration_seconds, with pid,
+    query text, and how long they've been running. Candidates for the cancel-query remediation
+    (pg_cancel_backend) -- proposing/approving happens elsewhere, this only reports candidates.
+
+    Capped to the 10 longest-running, same convention as get_table_bloat below -- without a
+    limit, a bad-enough incident (many queries past the threshold at once) could blow past
+    Slack's per-message block limit in notify_slack.py, or balloon propose_remediation.py's
+    LLM prompt size, since every candidate returned here gets its own required LLM decision."""
+    with _connect_app_db(environment) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT pid, extract(epoch FROM now() - query_start)::float8 AS duration_seconds, left(query, 200) AS query
+            FROM pg_stat_activity
+            WHERE state = 'active' AND now() - query_start > (%s || ' seconds')::interval
+            ORDER BY duration_seconds DESC
+            LIMIT 10
+            """,
+            (min_duration_seconds,),
+        )
+        # ::float8 above matters, not just style -- extract() returns Postgres numeric,
+        # which psycopg maps to Python Decimal. Decimal isn't JSON-serializable, and
+        # whatever serializes this tool's return value over MCP falls back to str() for
+        # it, so duration_seconds would arrive on the other end as the STRING "1259.37"
+        # instead of a float -- confirmed empirically, this broke propose_remediation's
+        # int(seconds) formatting the first time a real candidate came through.
+        return [
+            {"pid": pid, "duration_seconds": duration_seconds, "query": query}
+            for pid, duration_seconds, query in cur.fetchall()
+        ]
+
+
+@mcp.tool()
 def get_performance_insights_top_sql(instance_id: str, minutes: int = 60) -> list[dict]:
     """Read-only: top SQL by DB load on this instance over the recent window (AWS Performance
     Insights). Statement text is tokenized -- parameter values are stripped, not the literal

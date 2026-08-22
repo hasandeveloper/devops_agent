@@ -48,3 +48,4 @@ class Incident(Base):
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     raw_event: Mapped["RawEvent"] = relationship(back_populates="incidents")
+    remediation_actions: Mapped[list["RemediationAction"]] = relationship(back_populates="incident")
