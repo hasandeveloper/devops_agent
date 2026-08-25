@@ -271,10 +271,7 @@ Every future fix follows the same shape — propose, get explicit human approval
 | 1 | Cancel a runaway query | 🟢 Low–Medium | ✅ Built |
 | 2 | Disconnect an idle-in-transaction connection | 🟡 Medium | ✅ Built |
 | 3 | Disconnect a connection blocking others | 🟡 Medium | ⏳ Not started |
-| 4 | Clean up a bloated table (`VACUUM`) | 🟡 Medium | ⏳ Not started |
-| 5 | Raise the database's capacity ceiling | 🟠 Medium–High | ⏳ Not started |
-| 6 | Restart the database instance | 🔴 High | ⏳ Not started |
-| 7 | Force a failover to standby | 🔴 Very High | ⏳ Not started |
+| 4 | Raise the database's capacity ceiling | 🟠 Medium–High | ⏳ Not started |
 
 Risk rises from top to bottom on purpose — the earliest phases interrupt one query or connection without touching the instance itself; the latest phases affect the whole database. Every phase still requires a human decision per action, regardless of how low its risk is rated.
 
@@ -705,7 +702,7 @@ A quick summary of what's described above, in one place:
 
 ### More remediation phases
 
-Phases 3–7 (disconnecting a lock blocker, cleaning up bloat, raising capacity, restarting, failover) are not built yet — see the risk-ranked roadmap table under [Human-in-the-loop remediation](#human-in-the-loop-remediation) for exactly what's next and in what order.
+Phases 3–4 (disconnecting a lock blocker, raising the capacity ceiling) are not built yet — see the risk-ranked roadmap table under [Human-in-the-loop remediation](#human-in-the-loop-remediation) for exactly what's next. VACUUM, instance reboot, and failover were dropped from the roadmap entirely — VACUUM had no dedicated alarm signal to justify it, and reboot/failover were judged too drastic for this system's human-approval model to cover well.
 
 ### More AI agents
 

@@ -8,7 +8,7 @@ from app.agents.shared.state.agent import AgentState
 from app.prompts.rds.remediation import build_prompt
 from app.services.remediation_service import action_to_dict, create_remediation_action, recompute_incident_status
 from config.llm import get_llm
-from config.mcp import parse_mcp_result, stdio_server
+from config.mcp import parse_mcp_list_result, stdio_server
 from config.reliability.mcp_timeouts import invoke_tool
 from config.settings import settings
 from db import SessionLocal
@@ -32,7 +32,10 @@ async def propose_remediation(state: AgentState) -> dict:
     client = MultiServerMCPClient(MCP_SERVERS)
     tools = await client.get_tools()
     candidates_tool = next(t for t in tools if t.name == "get_long_running_queries")
-    candidates = parse_mcp_result(
+    # parse_mcp_list_result, not parse_mcp_result -- exactly one long-running query is a
+    # completely ordinary result, not a rare edge case, and parse_mcp_result alone would
+    # collapse it to a bare dict instead of a one-element list (see its docstring).
+    candidates = parse_mcp_list_result(
         await invoke_tool(
             candidates_tool,
             {"environment": environment, "min_duration_seconds": settings.remediation_long_query_threshold_seconds},

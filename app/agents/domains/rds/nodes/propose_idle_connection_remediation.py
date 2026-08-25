@@ -8,7 +8,7 @@ from app.agents.shared.state.agent import AgentState
 from app.prompts.rds.idle_connection_remediation import build_prompt
 from app.services.remediation_service import action_to_dict, create_remediation_action, recompute_incident_status
 from config.llm import get_llm
-from config.mcp import parse_mcp_result, stdio_server
+from config.mcp import parse_mcp_list_result, stdio_server
 from config.reliability.mcp_timeouts import invoke_tool
 from config.settings import settings
 from db import SessionLocal
@@ -32,7 +32,11 @@ async def propose_idle_connection_remediation(state: AgentState) -> dict:
     client = MultiServerMCPClient(MCP_SERVERS)
     tools = await client.get_tools()
     candidates_tool = next(t for t in tools if t.name == "get_idle_in_transaction_connections")
-    idle_connections = parse_mcp_result(
+    # parse_mcp_list_result, not parse_mcp_result -- confirmed live: exactly one idle
+    # candidate collapses to a bare dict under parse_mcp_result (see its docstring),
+    # which breaks the list comprehension below (iterates a dict's string keys instead
+    # of its rows -- "string indices must be integers, not 'str'").
+    idle_connections = parse_mcp_list_result(
         await invoke_tool(
             candidates_tool,
             {

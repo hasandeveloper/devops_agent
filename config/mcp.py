@@ -31,6 +31,25 @@ def parse_mcp_result(result):
     return result
 
 
+def parse_mcp_list_result(result) -> list:
+    """Like parse_mcp_result, but for a tool whose return type is documented as a list
+    (list[dict], usually) -- use this instead of parse_mcp_result directly wherever the
+    caller always expects a list back, e.g. `for c in parse_mcp_list_result(...)`.
+
+    parse_mcp_result's own unwrap (`parsed[0] if len(parsed) == 1 else parsed`) collapses
+    a single-item list down to its bare element, because at the wire level a tool
+    returning `[{"pid": 1}]` and one returning `{"pid": 1}` produce the exact same single
+    content block -- there is no way to tell them apart after the fact from parse_mcp_result
+    alone. Confirmed empirically: get_idle_in_transaction_connections with exactly one
+    candidate returns a bare dict, not a one-element list, which breaks any caller written
+    to always iterate a list (e.g. `[c for c in idle_connections if ...]` iterates a dict's
+    *keys*, all strings, instead of its rows). The zero-item and many-item cases were
+    already correct by construction; only the exactly-one-item case needed this.
+    """
+    parsed = parse_mcp_result(result)
+    return parsed if isinstance(parsed, list) else [parsed]
+
+
 def stdio_server(module_path: str) -> dict:
     """Connection config for an MCP server run as `python -m <module_path>`.
 
