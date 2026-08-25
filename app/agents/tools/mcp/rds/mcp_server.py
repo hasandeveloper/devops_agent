@@ -230,6 +230,37 @@ def get_long_running_queries(environment: str, min_duration_seconds: int = 60) -
 
 
 @mcp.tool()
+def get_idle_in_transaction_connections(environment: str, min_idle_seconds: int = 300) -> list[dict]:
+    """Read-only: connections idle-in-transaction longer than min_idle_seconds, with pid,
+    how long they've been idle, the last query they ran before going idle, and when the
+    connection itself started (backend_start). Candidates for the terminate-idle-connection
+    remediation (pg_terminate_backend) -- proposing/approving happens elsewhere.
+
+    Capped to the 10 longest-idle, same convention as get_long_running_queries above.
+    backend_start is returned as epoch seconds (::float8), not a timestamp -- same reason
+    duration_seconds is: a raw datetime isn't natively JSON-serializable over the MCP
+    round-trip either, and would hit the identical ambiguous-string bug."""
+    with _connect_app_db(environment) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT pid,
+                   extract(epoch FROM now() - state_change)::float8 AS duration_seconds,
+                   left(query, 200) AS query,
+                   extract(epoch FROM backend_start)::float8 AS backend_start
+            FROM pg_stat_activity
+            WHERE state = 'idle in transaction' AND now() - state_change > (%s || ' seconds')::interval
+            ORDER BY duration_seconds DESC
+            LIMIT 10
+            """,
+            (min_idle_seconds,),
+        )
+        return [
+            {"pid": pid, "duration_seconds": duration_seconds, "query": query, "backend_start": backend_start}
+            for pid, duration_seconds, query, backend_start in cur.fetchall()
+        ]
+
+
+@mcp.tool()
 def get_performance_insights_top_sql(instance_id: str, minutes: int = 60) -> list[dict]:
     """Read-only: top SQL by DB load on this instance over the recent window (AWS Performance
     Insights). Statement text is tokenized -- parameter values are stripped, not the literal

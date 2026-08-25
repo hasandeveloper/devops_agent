@@ -49,7 +49,7 @@ Instead of an engineer manually checking CloudWatch, RDS, PostgreSQL, and Perfor
 
 > **The agent investigates on its own. It only ever changes anything with a human's explicit, per-action approval.**
 
-Every investigation tool is **read-only**. The one exception — cancelling a single, specifically-named runaway query — only ever runs after a human approves that exact query in Slack. See [Human-in-the-loop remediation](#human-in-the-loop-remediation) below.
+Every investigation tool is **read-only**. The exceptions — cancelling a single, specifically-named runaway query, or terminating a single, specifically-named blocking connection — only ever run after a human approves that exact target in Slack. See [Human-in-the-loop remediation](#human-in-the-loop-remediation) below.
 
 <a id="why-do-we-need-this"></a>
 # 🎯 Why do we need this?
@@ -245,6 +245,23 @@ than the configured threshold.
 
 A human can approve one, several, or all of them ("Approve All Remaining" handles the last case). Only on approval does the system re-check that the query is *still* running the *same* thing before cancelling it — if it already finished on its own, or its process ID has since been reused by something else entirely, the system backs off instead of risking the wrong target.
 
+**Phase 2 — disconnect an idle-in-transaction connection.** An idle-in-transaction connection has no running query — there's nothing for a cancel to interrupt, so the only way to release whatever lock it's holding is to end the session entirely. That's a heavier action than Phase 1's, so the gate is stricter: a candidate has to be both idle past a (higher) threshold *and* confirmed to actually be blocking another query right now, not idle alone. The Slack copy says so honestly:
+
+```text
+PID: 5678
+Idle for: 8m 03s
+Query: UPDATE orders SET ...
+
+Reason:
+This connection is blocking other queries.
+
+[Terminate Connection]  [Reject]
+```
+
+The re-check before acting is also stronger than Phase 1's — in addition to matching the query text, it confirms the connection's exact start timestamp still matches, since a pid can be reused by an unrelated newer connection and query text alone isn't a strong enough fingerprint for an action this disruptive.
+
+One real gap worth knowing: there's no native CloudWatch metric for idle-in-transaction connection count, and Performance Insights doesn't catch it either (an idle session contributes zero to its Database Load measurement by definition) — this phase's own tool has to query `pg_stat_activity` directly because AWS's own monitoring has nothing to offer here. See `documentation/rds-agent/4.hitl-remediation-phase-2-terminate-idle-connection.md` §8 for the full detail and the workarounds if you want a dedicated alarm anyway.
+
 ## The full roadmap
 
 Every future fix follows the same shape — propose, get explicit human approval, re-verify right before acting — just applied to a riskier action each time:
@@ -252,15 +269,14 @@ Every future fix follows the same shape — propose, get explicit human approval
 | Phase | Fix | Risk | Status |
 |---|---|---|---|
 | 1 | Cancel a runaway query | 🟢 Low–Medium | ✅ Built |
-| 2 | Disconnect an idle-in-transaction connection | 🟡 Medium | 🧭 Designed |
+| 2 | Disconnect an idle-in-transaction connection | 🟡 Medium | ✅ Built |
 | 3 | Disconnect a connection blocking others | 🟡 Medium | ⏳ Not started |
-| 4 | Cancel a single long-running query (simpler variant) | 🟢 Low–Medium | ⏳ Not started |
-| 5 | Clean up a bloated table (`VACUUM`) | 🟡 Medium | ⏳ Not started |
-| 6 | Raise the database's capacity ceiling | 🟠 Medium–High | ⏳ Not started |
-| 7 | Restart the database instance | 🔴 High | ⏳ Not started |
-| 8 | Force a failover to standby | 🔴 Very High | ⏳ Not started |
+| 4 | Clean up a bloated table (`VACUUM`) | 🟡 Medium | ⏳ Not started |
+| 5 | Raise the database's capacity ceiling | 🟠 Medium–High | ⏳ Not started |
+| 6 | Restart the database instance | 🔴 High | ⏳ Not started |
+| 7 | Force a failover to standby | 🔴 Very High | ⏳ Not started |
 
-Risk rises from top to bottom on purpose — the earliest phases interrupt one query without touching the connection or the instance; the latest phases affect the whole database. Every phase still requires a human decision per action, regardless of how low its risk is rated.
+Risk rises from top to bottom on purpose — the earliest phases interrupt one query or connection without touching the instance itself; the latest phases affect the whole database. Every phase still requires a human decision per action, regardless of how low its risk is rated.
 
 ## Beyond RDS
 
@@ -302,12 +318,12 @@ It does **not** have tools to:
 ✗ Execute arbitrary SQL
 ```
 
-The one exception, gated entirely behind human approval (see [Human-in-the-loop remediation](#human-in-the-loop-remediation) above): the agent can cancel one specific, named query — never anything else, and never without a human clicking Approve for that exact query first.
+The exceptions, each gated entirely behind human approval (see [Human-in-the-loop remediation](#human-in-the-loop-remediation) above): the agent can cancel one specific, named query, or terminate one specific, named connection that's confirmed to be blocking others — never anything else, and never without a human clicking Approve for that exact target first.
 
 Two dedicated PostgreSQL roles enforce this separation at the database level, not just in application code:
 
 - A **read-only** role, used by every investigation tool.
-- A **separate, minimally-privileged** role, used only by the one write action — granted just enough to cancel a query and read other sessions' query text, never superuser, never table access.
+- A **separate, minimally-privileged** role, used only by the write actions — granted just enough to cancel a query, terminate a connection, and read other sessions' query text (the same `pg_signal_backend` grant covers both `pg_cancel_backend` and `pg_terminate_backend`), never superuser, never table access.
 
 <a id="cost-and-reliability-controls"></a>
 # 💰 Cost and reliability controls
@@ -392,13 +408,13 @@ When the RDS agent proposes a fix, a second, independent loop takes over — tri
   Rejected          Approved
      │                 │
      │                 ▼
-     │        Re-check the query is
+     │        Re-check the target is
      │        still the same one
      │                 │
      │        ┌────────┴────────┐
      │        ▼                 ▼
-     │    Cancel it       Already resolved —
-     │                    do nothing
+     │  Cancel/terminate   Already resolved —
+     │        it              do nothing
      │        │                 │
      └────────┴────────┬────────┘
                         ▼
@@ -677,6 +693,7 @@ A quick summary of what's described above, in one place:
 - AI-generated diagnosis
 - Slack notifications
 - **Human-in-the-loop remediation, Phase 1** — propose cancelling a runaway query, Slack Approve / Reject / Approve All Remaining, a fresh safety re-check immediately before acting
+- **Human-in-the-loop remediation, Phase 2** — propose terminating an idle-in-transaction connection confirmed to be blocking others, a stronger recheck (query text + connection start time) before acting
 - Signature verification for every webhook source (SNS, GitHub, Slack)
 - Celery/Redis background processing
 - Rate limiting
@@ -688,7 +705,7 @@ A quick summary of what's described above, in one place:
 
 ### More remediation phases
 
-Phases 2–8 (disconnecting idle/blocking connections, cleaning up bloat, raising capacity, restarting, failover) are not built yet — see the risk-ranked roadmap table under [Human-in-the-loop remediation](#human-in-the-loop-remediation) for exactly what's next and in what order.
+Phases 3–7 (disconnecting a lock blocker, cleaning up bloat, raising capacity, restarting, failover) are not built yet — see the risk-ranked roadmap table under [Human-in-the-loop remediation](#human-in-the-loop-remediation) for exactly what's next and in what order.
 
 ### More AI agents
 
@@ -715,6 +732,7 @@ For deeper technical details follow these below sequencial order:
 | `documentation/rds-agent/1.your-rds-readonly-db-role-setup.md` | How the read-only *and* write-capable (remediation) database roles are configured |
 | `documentation/rds-agent/2.how-agent-pipeline-works-end-to-end.md` | How the RDS investigation works from start to finish |
 | `documentation/rds-agent/3.hitl-remediation-phase-1-cancel-query.md` | How Phase 1 remediation (cancel a runaway query) actually works, end to end |
+| `documentation/rds-agent/4.hitl-remediation-phase-2-terminate-idle-connection.md` | How Phase 2 remediation (terminate a blocking idle-in-transaction connection) works, including why no CloudWatch alarm covers this directly |
 | `documentation/rag/pgvector-retrieval.md` | How similar incidents are stored and retrieved |
 
 <a id="contributing"></a>

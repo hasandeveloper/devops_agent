@@ -40,6 +40,19 @@ class RemediationAction(Base):
     # display, not re-queried live, so the Slack message stays accurate when re-rendered
     # after a decision (see slack_service.py's _build_remediation_blocks).
     target_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Only populated for action types whose re-check needs a stronger identity match
+    # than query text alone (e.g. terminate_idle_connection) -- a connection's start
+    # timestamp never changes for its lifetime, so it's a firmer fingerprint than query
+    # text against the pid having been reused by an unrelated, newer connection. NULL
+    # for action types (like cancel_query) that don't need it.
+    #
+    # Stored as epoch seconds (float), not a DateTime column -- deliberately, the same
+    # fix already applied to target_duration_seconds above. A raw datetime isn't
+    # natively JSON-serializable either, so it would hit the identical Decimal-style
+    # ambiguous-string-on-MCP-round-trip bug that broke duration formatting before the
+    # ::float8 cast was added to get_long_running_queries. Casting to epoch seconds in
+    # SQL sidesteps the whole class of bug instead of reproducing it.
+    target_backend_start: Mapped[float | None] = mapped_column(Float, nullable=True)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[RemediationStatus] = mapped_column(
         Enum(RemediationStatus, name="remediation_status"), nullable=False, default=RemediationStatus.proposed

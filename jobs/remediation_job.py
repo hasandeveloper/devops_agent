@@ -22,6 +22,32 @@ logger = logging.getLogger(__name__)
 
 MCP_SERVERS = {"rds_remediation": stdio_server("app.agents.tools.mcp.rds.remediation_mcp_server")}
 
+# The one place that needs to know about every remediation action type. Everything
+# else (the graph, Slack rendering, the interaction handler) stays generic by row id,
+# not by action type -- adding a future phase means one more entry here, not new
+# branching logic elsewhere.
+_ACTION_HANDLERS = {
+    "cancel_query": {
+        "tool": "cancel_backend",
+        "verb": "cancelled",
+        "build_args": lambda a: {
+            "environment": a.environment,
+            "pid": a.target_pid,
+            "expected_query_snippet": a.target_query,
+        },
+    },
+    "terminate_idle_connection": {
+        "tool": "terminate_backend",
+        "verb": "terminated",
+        "build_args": lambda a: {
+            "environment": a.environment,
+            "pid": a.target_pid,
+            "expected_query_snippet": a.target_query,
+            "expected_backend_start": a.target_backend_start,
+        },
+    },
+}
+
 
 async def _execute(remediation_id: uuid.UUID) -> None:
     db = SessionLocal()
@@ -33,25 +59,17 @@ async def _execute(remediation_id: uuid.UUID) -> None:
             logger.warning("remediation_id=%s not in approved state, skipping execution", remediation_id)
             return
 
+        handler = _ACTION_HANDLERS[action.action_type]
         try:
             client = MultiServerMCPClient(MCP_SERVERS)
             tools = await client.get_tools()
-            cancel_tool = next(t for t in tools if t.name == "cancel_backend")
-            result = parse_mcp_result(
-                await invoke_tool(
-                    cancel_tool,
-                    {
-                        "environment": action.environment,
-                        "pid": action.target_pid,
-                        "expected_query_snippet": action.target_query,
-                    },
-                )
-            )
+            tool = next(t for t in tools if t.name == handler["tool"])
+            result = parse_mcp_result(await invoke_tool(tool, handler["build_args"](action)))
         except Exception as exc:
-            logger.exception("remediation_id=%s cancel_backend call failed", remediation_id)
+            logger.exception("remediation_id=%s %s call failed", remediation_id, handler["tool"])
             action = mark_remediation_result(db, remediation_id, status=RemediationStatus.failed, result=str(exc))
         else:
-            outcome = "cancelled" if result["action_taken"] else f"skipped: {result['skipped']}"
+            outcome = handler["verb"] if result["action_taken"] else f"skipped: {result['skipped']}"
             action = mark_remediation_result(db, remediation_id, status=RemediationStatus.executed, result=outcome)
 
         recompute_incident_status(db, action.incident_id)
@@ -95,8 +113,8 @@ async def _execute(remediation_id: uuid.UUID) -> None:
 
 @celery_app.task(bind=True, max_retries=0)
 def execute_remediation_job(self, remediation_id: str) -> None:
-    # No retry: a failed cancel_backend call is recorded as `failed` on the row itself
+    # No retry: a failed write-tool call is recorded as `failed` on the row itself
     # (visible in the final Slack message) rather than retried -- retrying could mean
-    # attempting to cancel a pid a second time after conditions have already changed
-    # again, which is exactly the TOCTOU risk cancel_backend's own re-check exists to avoid.
+    # acting on a pid a second time after conditions have already changed again, which
+    # is exactly the TOCTOU risk each write tool's own re-check exists to avoid.
     asyncio.run(_execute(uuid.UUID(remediation_id)))
