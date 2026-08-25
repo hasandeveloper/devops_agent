@@ -16,31 +16,31 @@
 
 # 📋 Table of Contents
 
-- [Why do we need this?](#-why-do-we-need-this)
-- [What does the agent do?](#-what-does-the-agent-do)
-- [How the investigation works](#-how-the-investigation-works)
+- [Why do we need this?](#why-do-we-need-this)
+- [What does the agent do?](#what-does-the-agent-do)
+- [How the investigation works](#how-the-investigation-works)
   - [1. Receive the alarm](#1-receive-the-alarm)
   - [2. Understand the current situation](#2-understand-the-current-situation)
   - [3. Check previous incidents](#3-check-previous-incidents)
   - [4. Investigate further](#4-investigate-further)
   - [5. Generate a diagnosis](#5-generate-a-diagnosis)
   - [6. Send the result to Slack](#6-send-the-result-to-slack)
-- [Human-in-the-loop remediation](#-human-in-the-loop-remediation)
-- [Safety: What can the AI do?](#-safety-what-can-the-ai-do)
-- [Cost and reliability controls](#-cost-and-reliability-controls)
-- [Architecture](#-architecture)
-- [Main components](#-main-components)
-- [Project structure](#-project-structure)
-- [Quick Start](#-quick-start)
+- [Human-in-the-loop remediation](#human-in-the-loop-remediation)
+- [Safety: What can the AI do?](#safety-what-can-the-ai-do)
+- [Cost and reliability controls](#cost-and-reliability-controls)
+- [Architecture](#architecture)
+- [Main components](#main-components)
+- [Project structure](#project-structure)
+- [Quick Start](#quick-start)
   - [Option 1 — Docker](#option-1--docker)
   - [Option 2 — Run locally](#option-2--run-locally)
-- [API Endpoints](#-api-endpoints)
-- [Testing](#-testing)
-- [Key Features](#-key-features)
-- [Current Status](#-current-status)
-- [Further Documentation](#-further-documentation)
-- [Contributing](#-contributing)
-- [License](#-license)
+- [API Endpoints](#api-endpoints)
+- [Testing](#testing)
+- [Key Features](#key-features)
+- [Current Status](#current-status)
+- [Further Documentation](#further-documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
 **devops-agent** is an AI system that automatically investigates AWS CloudWatch alarms and explains **what is happening, why it may be happening, and what evidence supports the diagnosis**.
 
@@ -48,8 +48,9 @@ Instead of an engineer manually checking CloudWatch, RDS, PostgreSQL, and Perfor
 
 > **The agent investigates on its own. It only ever changes anything with a human's explicit, per-action approval.**
 
-Every investigation tool is **read-only**. The one exception — cancelling a single, specifically-named runaway query — only ever runs after a human approves that exact query in Slack. See [Human-in-the-loop remediation](#-human-in-the-loop-remediation) below.
+Every investigation tool is **read-only**. The one exception — cancelling a single, specifically-named runaway query — only ever runs after a human approves that exact query in Slack. See [Human-in-the-loop remediation](#human-in-the-loop-remediation) below.
 
+<a id="why-do-we-need-this"></a>
 # 🎯 Why do we need this?
 
 A CloudWatch alarm tells you:
@@ -79,6 +80,7 @@ An engineer would normally need to:
 
 The agent automates this initial investigation.
 
+<a id="what-does-the-agent-do"></a>
 # 🤖 What does the agent do?
 
 When an AWS alarm fires, the system follows this flow:
@@ -107,6 +109,7 @@ Post findings to Slack
 
 The agent can decide what additional information it needs instead of blindly running every possible check.
 
+<a id="how-the-investigation-works"></a>
 # 🔍 How the investigation works
 
 ## 1. Receive the alarm
@@ -216,6 +219,7 @@ SQL:
 SELECT ...
 ```
 
+<a id="human-in-the-loop-remediation"></a>
 # 🛠️ Human-in-the-loop remediation
 
 Diagnosis is the foundation. For a small, deliberately narrow set of fixes, the RDS agent can now also **propose an action** — and, only if a human approves it in Slack, actually carry it out.
@@ -261,6 +265,7 @@ Risk rises from top to bottom on purpose — the earliest phases interrupt one q
 
 This investigate → diagnose → propose a fix → human approves → act pattern isn't meant to stay specific to RDS. The plan is to extend the same loop to the other AWS services already stubbed into the routing layer today — **ECS, EC2, EBS, Application Load Balancers, and CI/CD pipeline events** — once their own domain agents are built, using the exact same safety model throughout rather than a special case for databases.
 
+<a id="safety-what-can-the-ai-do"></a>
 # 🔐 Safety: What can the AI do?
 
 The most important design decision is:
@@ -296,13 +301,14 @@ It does **not** have tools to:
 ✗ Execute arbitrary SQL
 ```
 
-The one exception, gated entirely behind human approval (see [Human-in-the-loop remediation](#-human-in-the-loop-remediation) above): the agent can cancel one specific, named query — never anything else, and never without a human clicking Approve for that exact query first.
+The one exception, gated entirely behind human approval (see [Human-in-the-loop remediation](#human-in-the-loop-remediation) above): the agent can cancel one specific, named query — never anything else, and never without a human clicking Approve for that exact query first.
 
 Two dedicated PostgreSQL roles enforce this separation at the database level, not just in application code:
 
 - A **read-only** role, used by every investigation tool.
 - A **separate, minimally-privileged** role, used only by the one write action — granted just enough to cancel a query and read other sessions' query text, never superuser, never table access.
 
+<a id="cost-and-reliability-controls"></a>
 # 💰 Cost and reliability controls
 
 The system includes protections against an alarm storm generating unlimited AI work.
@@ -317,6 +323,7 @@ It includes:
 
 This prevents a large number of alarms from turning into an uncontrolled number of AI requests.
 
+<a id="architecture"></a>
 # 🏗️ Architecture
 
 ```text
@@ -397,6 +404,7 @@ When the RDS agent proposes a fix, a second, independent loop takes over — tri
            Post the result back to Slack
 ```
 
+<a id="main-components"></a>
 # 🧩 Main components
 
 | Component | Purpose |
@@ -414,6 +422,7 @@ When the RDS agent proposes a fix, a second, independent loop takes over — tri
 | **Slack** | Delivers the final diagnosis, and the Approve/Reject/Approve-All buttons for a proposed fix |
 | **MCP (write-capable)** | A separate, minimally-privileged server that carries out an approved fix — never used during investigation |
 
+<a id="project-structure"></a>
 # 📁 Project structure
 
 ```text
@@ -476,6 +485,7 @@ documentation/
     → Detailed technical documentation
 ```
 
+<a id="quick-start"></a>
 # 🚀 Quick Start
 
 > **A public tunnel (e.g. [ngrok](https://ngrok.com)) is required for local development.**
@@ -558,6 +568,7 @@ Start Celery:
 python -m celery -A config.celery_app worker --loglevel=info
 ```
 
+<a id="api-endpoints"></a>
 # 🔌 API Endpoints
 
 ### Health check
@@ -594,6 +605,7 @@ POST /webhooks/slack/interactions
 
 Receives Approve / Reject / Approve All Remaining button clicks for a proposed remediation. Verifies the request is genuinely from Slack before recording any decision or running anything.
 
+<a id="testing"></a>
 # 🧪 Testing
 
 Run the guardrail suite (fast, deterministic, no API cost):
@@ -618,6 +630,7 @@ Run it when changing:
 - Investigation prompts
 - Diagnosis prompts
 
+<a id="key-features"></a>
 # ✨ Key Features
 
 A quick summary of what's described above, in one place:
@@ -633,6 +646,7 @@ A quick summary of what's described above, in one place:
 - ✅ Dockerized — the full stack runs with `docker compose up --build`
 - ✅ Automated tests, split into a fast guardrail suite and an LLM evaluation suite
 
+<a id="current-status"></a>
 # 🗺️ Current Status
 
 ## ✅ Currently built
@@ -659,7 +673,7 @@ A quick summary of what's described above, in one place:
 
 ### More remediation phases
 
-Phases 2–8 (disconnecting idle/blocking connections, cleaning up bloat, raising capacity, restarting, failover) are not built yet — see the risk-ranked roadmap table under [Human-in-the-loop remediation](#-human-in-the-loop-remediation) for exactly what's next and in what order.
+Phases 2–8 (disconnecting idle/blocking connections, cleaning up bloat, raising capacity, restarting, failover) are not built yet — see the risk-ranked roadmap table under [Human-in-the-loop remediation](#human-in-the-loop-remediation) for exactly what's next and in what order.
 
 ### More AI agents
 
@@ -673,6 +687,7 @@ Additional domain agents, using the same investigate → diagnose → propose a 
 
 None of these route anywhere yet — each currently raises `NotImplementedError` rather than silently doing nothing.
 
+<a id="further-documentation"></a>
 # 📚 Further Documentation
 
 For deeper technical details follow these below sequencial order:
@@ -687,12 +702,14 @@ For deeper technical details follow these below sequencial order:
 | `documentation/rds-agent/3.hitl-remediation-phase-1-cancel-query.md` | How Phase 1 remediation (cancel a runaway query) actually works, end to end |
 | `documentation/rag/pgvector-retrieval.md` | How similar incidents are stored and retrieved |
 
+<a id="contributing"></a>
 # 🤝 Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, running tests, and how to submit a change.
 
 Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). Found a security issue? See [SECURITY.md](SECURITY.md) rather than opening a public issue.
 
+<a id="license"></a>
 # 📄 License
 
 [MIT](LICENSE)
