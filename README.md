@@ -25,6 +25,7 @@
   - [4. Investigate further](#4-investigate-further)
   - [5. Generate a diagnosis](#5-generate-a-diagnosis)
   - [6. Send the result to Slack](#6-send-the-result-to-slack)
+- [Human-in-the-loop remediation](#-human-in-the-loop-remediation)
 - [Safety: What can the AI do?](#-safety-what-can-the-ai-do)
 - [Cost and reliability controls](#-cost-and-reliability-controls)
 - [Architecture](#-architecture)
@@ -45,9 +46,9 @@
 
 Instead of an engineer manually checking CloudWatch, RDS, PostgreSQL, and Performance Insights, the agent investigates the incident automatically and sends the findings to Slack.
 
-> **The agent investigates — it does not make changes.**
+> **The agent investigates on its own. It only ever changes anything with a human's explicit, per-action approval.**
 
-All infrastructure and database tools available to the agent are **read-only**.
+Every investigation tool is **read-only**. The one exception — cancelling a single, specifically-named runaway query — only ever runs after a human approves that exact query in Slack. See [Human-in-the-loop remediation](#-human-in-the-loop-remediation) below.
 
 # 🎯 Why do we need this?
 
@@ -215,13 +216,58 @@ SQL:
 SELECT ...
 ```
 
+# 🛠️ Human-in-the-loop remediation
+
+Diagnosis is the foundation. For a small, deliberately narrow set of fixes, the RDS agent can now also **propose an action** — and, only if a human approves it in Slack, actually carry it out.
+
+> **Nothing happens automatically.** Every remediation action requires an explicit human click, one target at a time, before anything runs.
+
+## What's built today
+
+**Phase 1 — cancel a runaway query.** When a diagnosis isn't low-risk, the agent looks for queries that have been running unusually long, asks the LLM to filter out anything that looks like expected background work (a backup, an explicit `VACUUM`), and — for what's left — posts each one to Slack individually:
+
+```text
+PID: 1234
+Duration: 8m 32s
+Query: SELECT ...
+
+Reason:
+This query has been running significantly longer
+than the configured threshold.
+
+[Approve]  [Reject]
+```
+
+A human can approve one, several, or all of them ("Approve All Remaining" handles the last case). Only on approval does the system re-check that the query is *still* running the *same* thing before cancelling it — if it already finished on its own, or its process ID has since been reused by something else entirely, the system backs off instead of risking the wrong target.
+
+## The full roadmap
+
+Every future fix follows the same shape — propose, get explicit human approval, re-verify right before acting — just applied to a riskier action each time:
+
+| Phase | Fix | Risk | Status |
+|---|---|---|---|
+| 1 | Cancel a runaway query | 🟢 Low–Medium | ✅ Built |
+| 2 | Disconnect an idle-in-transaction connection | 🟡 Medium | 🧭 Designed |
+| 3 | Disconnect a connection blocking others | 🟡 Medium | ⏳ Not started |
+| 4 | Cancel a single long-running query (simpler variant) | 🟢 Low–Medium | ⏳ Not started |
+| 5 | Clean up a bloated table (`VACUUM`) | 🟡 Medium | ⏳ Not started |
+| 6 | Raise the database's capacity ceiling | 🟠 Medium–High | ⏳ Not started |
+| 7 | Restart the database instance | 🔴 High | ⏳ Not started |
+| 8 | Force a failover to standby | 🔴 Very High | ⏳ Not started |
+
+Risk rises from top to bottom on purpose — the earliest phases interrupt one query without touching the connection or the instance; the latest phases affect the whole database. Every phase still requires a human decision per action, regardless of how low its risk is rated.
+
+## Beyond RDS
+
+This investigate → diagnose → propose a fix → human approves → act pattern isn't meant to stay specific to RDS. The plan is to extend the same loop to the other AWS services already stubbed into the routing layer today — **ECS, EC2, EBS, Application Load Balancers, and CI/CD pipeline events** — once their own domain agents are built, using the exact same safety model throughout rather than a special case for databases.
+
 # 🔐 Safety: What can the AI do?
 
 The most important design decision is:
 
-> **The AI can investigate, but it cannot change infrastructure.**
+> **The AI investigates freely. It only ever acts through a small, deliberately narrow set of fixes, and only with a human's explicit, per-action approval.**
 
-The RDS agent currently has access only to read operations such as:
+The RDS agent has access to read operations such as:
 
 ```text
 AWS:
@@ -250,7 +296,12 @@ It does **not** have tools to:
 ✗ Execute arbitrary SQL
 ```
 
-The database connection also uses a dedicated read-only PostgreSQL role.
+The one exception, gated entirely behind human approval (see [Human-in-the-loop remediation](#-human-in-the-loop-remediation) above): the agent can cancel one specific, named query — never anything else, and never without a human clicking Approve for that exact query first.
+
+Two dedicated PostgreSQL roles enforce this separation at the database level, not just in application code:
+
+- A **read-only** role, used by every investigation tool.
+- A **separate, minimally-privileged** role, used only by the one write action — granted just enough to cancel a query and read other sessions' query text, never superuser, never table access.
 
 # 💰 Cost and reliability controls
 
@@ -315,6 +366,37 @@ This prevents a large number of alarms from turning into an uncontrolled number 
                   Slack
 ```
 
+When the RDS agent proposes a fix, a second, independent loop takes over — triggered by a Slack click, not by the diagnosis pipeline above:
+
+```text
+     Slack (Approve/Reject click)
+              │
+              ▼
+  POST /webhooks/slack/interactions
+              │
+      Verify it's really Slack
+              │
+              ▼
+      Record the decision
+              │
+     ┌────────┴────────┐
+     ▼                 ▼
+  Rejected          Approved
+     │                 │
+     │                 ▼
+     │        Re-check the query is
+     │        still the same one
+     │                 │
+     │        ┌────────┴────────┐
+     │        ▼                 ▼
+     │    Cancel it       Already resolved —
+     │                    do nothing
+     │        │                 │
+     └────────┴────────┬────────┘
+                        ▼
+           Post the result back to Slack
+```
+
 # 🧩 Main components
 
 | Component | Purpose |
@@ -329,7 +411,8 @@ This prevents a large number of alarms from turning into an uncontrolled number 
 | **pgvector** | Finds similar historical incidents |
 | **CloudWatch** | Provides AWS monitoring data |
 | **Performance Insights** | Shows database load and SQL |
-| **Slack** | Delivers the final diagnosis |
+| **Slack** | Delivers the final diagnosis, and the Approve/Reject/Approve-All buttons for a proposed fix |
+| **MCP (write-capable)** | A separate, minimally-privileged server that carries out an approved fix — never used during investigation |
 
 # 📁 Project structure
 
@@ -347,7 +430,8 @@ devops-agent/
 │   │   └── tools/
 │   │       └── mcp/
 │   │           └── rds/
-│   │               └── mcp_server.py
+│   │               ├── mcp_server.py              (read-only, investigation)
+│   │               └── remediation_mcp_server.py  (write, human-approved only)
 │   │
 │   ├── controllers/
 │   ├── models/
@@ -418,6 +502,8 @@ SLACK_WEBHOOK_URL
 AWS credentials
 Database credentials
 ```
+
+Investigation-only setup works with just those. For the remediation feature specifically, also set `SLACK_SIGNING_SECRET` and the `DB_*_REMEDIATION_*` credentials — see `documentation/rds-agent/3.hitl-remediation-phase-1-cancel-query.md`.
 
 Then:
 
@@ -500,23 +586,33 @@ Receives GitHub Actions events.
 
 GitHub events are stored, but they currently **do not trigger an AI investigation**.
 
+### Slack interactions
+
+```http
+POST /webhooks/slack/interactions
+```
+
+Receives Approve / Reject / Approve All Remaining button clicks for a proposed remediation. Verifies the request is genuinely from Slack before recording any decision or running anything.
+
 # 🧪 Testing
 
-Run normal tests:
+Run the guardrail suite (fast, deterministic, no API cost):
 
 ```bash
 pytest
 ```
 
-Run LLM evaluation tests:
+This covers signature verification for every webhook source (SNS, GitHub, Slack), SQL-injection and stale-target safety checks, prompt structure, and routing/parsing correctness — see `tests/guardrails/`.
+
+Run the LLM evaluation suite (real LLM calls, real cost):
 
 ```bash
 pytest -m llm tests/eval
 ```
 
-LLM evaluation tests use a real LLM and therefore consume API credits.
+This is a golden-dataset regression check against `diagnose`'s structured output.
 
-Run them when changing:
+Run it when changing:
 
 - LLM models
 - Investigation prompts
@@ -526,14 +622,16 @@ Run them when changing:
 
 A quick summary of what's described above, in one place:
 
-- ✅ Read-only by design — the AI can investigate, it cannot change infrastructure
+- ✅ Read-only investigation by design — the AI investigates freely, but changes nothing on its own
+- ✅ Human-in-the-loop remediation — a risk-ranked, growing set of fixes, each requiring explicit per-target Slack approval and a fresh safety re-check immediately before acting
 - ✅ ReAct-based investigation — the agent decides what to check instead of following a fixed script
 - ✅ Similar-incident search using PostgreSQL + pgvector
 - ✅ Slack messages include the actual SQL a tool returned, not just the AI's interpretation of it
+- ✅ Signature verification on every webhook source — SNS, GitHub, and Slack interactions
 - ✅ Webhook + Celery task rate limiting, per-run LLM token limits, retry handling
 - ✅ Asynchronous alarm processing — the API responds immediately, the investigation runs in the background
 - ✅ Dockerized — the full stack runs with `docker compose up --build`
-- ✅ Automated tests, including an LLM evaluation suite for the diagnosis itself
+- ✅ Automated tests, split into a fast guardrail suite and an LLM evaluation suite
 
 # 🗺️ Current Status
 
@@ -549,49 +647,31 @@ A quick summary of what's described above, in one place:
 - Similar-incident search using pgvector
 - AI-generated diagnosis
 - Slack notifications
+- **Human-in-the-loop remediation, Phase 1** — propose cancelling a runaway query, Slack Approve / Reject / Approve All Remaining, a fresh safety re-check immediately before acting
+- Signature verification for every webhook source (SNS, GitHub, Slack)
 - Celery/Redis background processing
 - Rate limiting
 - Token budgets
 - Docker support
-- Automated tests and LLM evaluation
+- Automated tests (guardrail suite + LLM evaluation), split into `tests/guardrails/` and `tests/eval/`
 
 ## 🚧 Planned
 
-### Human approval
+### More remediation phases
 
-The next stage can introduce:
-
-```text
-AI diagnosis
-     ↓
-Human approval
-     ↓
-Execute action
-```
-
-For example, an engineer could approve an infrastructure action from Slack.
-
-### Mutating tools
-
-Eventually the system may support actions such as:
-
-```text
-Restart
-Scale
-Rollback
-```
-
-These are **not available to the current agent**.
+Phases 2–8 (disconnecting idle/blocking connections, cleaning up bloat, raising capacity, restarting, failover) are not built yet — see the risk-ranked roadmap table under [Human-in-the-loop remediation](#-human-in-the-loop-remediation) for exactly what's next and in what order.
 
 ### More AI agents
 
-Additional domain agents are planned for:
+Additional domain agents, using the same investigate → diagnose → propose a fix → human approves → act pattern already built for RDS, are planned for the sources and namespaces already stubbed into `supervisor.py` today:
 
 - ECS
-- ALB / Target Groups
-- ASG
-- CloudFront / S3
-- CI/CD
+- EC2
+- EBS
+- Application Load Balancers (ALB)
+- CI/CD pipeline events (GitHub Actions)
+
+None of these route anywhere yet — each currently raises `NotImplementedError` rather than silently doing nothing.
 
 # 📚 Further Documentation
 
@@ -602,8 +682,9 @@ For deeper technical details follow these below sequencial order:
 | `documentation/devops/sns/sns.md` | How to create/subscribe/register the SNS topic that delivers alarms to this app |
 | `documentation/devops/slack/slack.md` | How to create the Slack Incoming Webhook and choose which channel gets diagnoses |
 | `documentation/devops/rds/rds.md` | How to configure CloudWatch alarms for RDS/Aurora (connections, CPU, memory, ACU capacity) |
-| `documentation/rds-agent/1.your-rds-readonly-db-role-setup.md` | How the read-only database user is configured |
+| `documentation/rds-agent/1.your-rds-readonly-db-role-setup.md` | How the read-only *and* write-capable (remediation) database roles are configured |
 | `documentation/rds-agent/2.how-agent-pipeline-works-end-to-end.md` | How the RDS investigation works from start to finish |
+| `documentation/rds-agent/3.hitl-remediation-phase-1-cancel-query.md` | How Phase 1 remediation (cancel a runaway query) actually works, end to end |
 | `documentation/rag/pgvector-retrieval.md` | How similar incidents are stored and retrieved |
 
 # 🤝 Contributing
@@ -618,4 +699,4 @@ Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). Found a 
 
 # 🔑 In one sentence
 
-> **devops-agent is an AI-powered, read-only AWS incident investigator that turns CloudWatch alarms into evidence-based diagnoses and sends the findings to Slack.**
+> **devops-agent is an AI-powered AWS incident investigator that turns CloudWatch alarms into evidence-based diagnoses — and, for a small, risk-ranked, human-approved set of fixes, can act on them too.**
