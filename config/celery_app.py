@@ -8,7 +8,9 @@ from concurrent_log_handler import ConcurrentRotatingFileHandler
 from config.logging import LOG_BACKUP_COUNT, LOG_DIR, LOG_FORMAT, LOG_MAX_BYTES
 from config.settings import settings
 
-celery_app = Celery("devops_agent", broker=settings.celery_broker_url, include=["jobs.webhooks_job"])
+celery_app = Celery(
+    "devops_agent", broker=settings.celery_broker_url, include=["jobs.webhooks_job", "jobs.remediation_job"]
+)
 
 # Throttles how many aws_sns_event_job runs start per minute, regardless of how many
 # alarms arrive at once or how many worker processes/concurrency slots exist -- caps

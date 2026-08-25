@@ -1,6 +1,6 @@
 """Golden-dataset regression eval for the diagnose node's structured LLM output.
 
-Unlike tests/unit, this makes real LLM calls (real cost, real latency, and the output
+Unlike tests/guardrails, this makes real LLM calls (real cost, real latency, and the output
 is inherently non-deterministic) -- excluded from the default `pytest` run via the
 `llm` marker (see pytest.ini's `addopts = -m "not llm"`). Run explicitly with:
 

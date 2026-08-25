@@ -3,6 +3,7 @@ import binascii
 import hashlib
 import hmac
 import re
+import time
 from urllib.parse import urlparse
 
 import httpx
@@ -146,6 +147,36 @@ async def verify_sns_signature(message: dict) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid SNS signature",
         ) from exc
+
+
+# How old a Slack interaction request is allowed to be, per Slack's own recommendation --
+# rejects a captured-and-replayed request signed correctly but sent long after the fact.
+_SLACK_SIGNATURE_MAX_AGE_SECONDS = 60 * 5
+
+
+def verify_slack_signature(raw_body: bytes, timestamp: str, signature: str) -> None:
+    """Verifies a POST to /webhooks/slack/interactions (the remediation-approval button
+    click) actually came from Slack, using Slack's `v0=` HMAC-SHA256 request-signing
+    scheme -- see https://api.slack.com/authentication/verifying-requests-from-slack.
+
+    Unlike verify_github_signature above, a missing/blank SLACK_SIGNING_SECRET is a
+    misconfiguration, not "verification disabled" -- this endpoint executes a write
+    action (pg_cancel_backend) on approval, so it must never accept unsigned requests.
+    """
+    if not settings.slack_signing_secret:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Slack signing secret not configured")
+
+    try:
+        if abs(time.time() - float(timestamp)) > _SLACK_SIGNATURE_MAX_AGE_SECONDS:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="stale Slack request timestamp")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid Slack request timestamp") from exc
+
+    basestring = b"v0:" + timestamp.encode() + b":" + raw_body
+    expected = "v0=" + hmac.new(settings.slack_signing_secret.encode(), basestring, hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(expected, signature):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid Slack signature")
 
 
 def verify_github_signature(raw_body: bytes, signature_header: str) -> None:

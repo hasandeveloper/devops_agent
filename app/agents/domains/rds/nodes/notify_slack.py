@@ -26,7 +26,10 @@ async def notify_slack(state: AgentState) -> dict:
         db.close()
 
     await post_diagnosis(
-        incident_id=state["incident_id"], diagnosis=state["diagnosis"], query_evidence=state["query_evidence"]
+        incident_id=state["incident_id"],
+        diagnosis=state["diagnosis"],
+        query_evidence=state["query_evidence"],
+        remediation=state["remediation"],
     )
 
     db = SessionLocal()

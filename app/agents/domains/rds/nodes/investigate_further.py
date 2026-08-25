@@ -28,7 +28,7 @@ MCP_SERVERS = {"rds": stdio_server("app.agents.tools.mcp.rds.mcp_server")}
 # is ever hit, LangGraph raises GraphRecursionError, which propagates up like any other
 # unexpected exception (see jobs/webhooks_job.py's retry handling).
 _MAX_INVESTIGATION_STEPS = 11
-
+ 
 
 def _extract_query_evidence(messages: list) -> list[dict]:
     """Pull the exact SQL text out of this investigation's tool calls, straight from the

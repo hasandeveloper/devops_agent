@@ -12,6 +12,17 @@ class AppDbConfig(BaseModel):
     readonly_password: str
 
 
+class RemediationDbConfig(BaseModel):
+    """Connection info for one environment's app database using the write-capable
+    remediation role -- never the same credentials as AppDbConfig's readonly role."""
+
+    host: str
+    port: int
+    database: str
+    username: str
+    password: str
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -32,6 +43,14 @@ class Settings(BaseSettings):
     sns_auto_confirm_subscriptions: bool = True
     github_webhook_secret: str = ""
     slack_webhook_url: str = ""
+    # Verifies POST /webhooks/slack/interactions actually came from Slack (the
+    # button-click payload for HITL remediation approval) -- see
+    # app/controllers/concerns/webhooks/verifiable.py's verify_slack_signature.
+    # Copied from the Slack app's Basic Information page, not the incoming webhook URL.
+    slack_signing_secret: str = ""
+    # A query running longer than this is a candidate for the "cancel a runaway query"
+    # remediation (propose_remediation.py) -- see get_long_running_queries.
+    remediation_long_query_threshold_seconds: int = 60
     aws_region: str = "ap-south-1"
     # Left blank, config/aws.py falls back to boto3's own default credential chain (a
     # configured AWS CLI profile, instance role, etc.) -- set these when there's no
@@ -85,6 +104,19 @@ class Settings(BaseSettings):
     db_production_readonly_username: str = ""
     db_production_readonly_password: str = ""
 
+    # Separate write-capable credentials for the RDS domain agent's remediation tools
+    # (e.g. cancel_backend) -- deliberately not the same role as the *_readonly_*
+    # credentials above. Granted membership in pg_signal_backend only, never superuser --
+    # see documentation/rds-agent/1.your-rds-readonly-db-role-setup.md for the grant.
+    db_dev_remediation_username: str = ""
+    db_dev_remediation_password: str = ""
+
+    db_staging_remediation_username: str = ""
+    db_staging_remediation_password: str = ""
+
+    db_production_remediation_username: str = ""
+    db_production_remediation_password: str = ""
+
     def app_db_config(self, environment: str) -> AppDbConfig:
         """Look up the app database for a CloudWatch alarm's "environment" tag value."""
         configs = {
@@ -113,6 +145,19 @@ class Settings(BaseSettings):
         if environment not in configs:
             raise ValueError(f"no app database configured for environment={environment!r}")
         return configs[environment]
+
+    def remediation_db_config(self, environment: str) -> RemediationDbConfig:
+        """Like app_db_config(), but with write-capable remediation credentials instead
+        of the readonly role -- host/port/database are shared, only the role differs."""
+        readonly = self.app_db_config(environment)
+        username, password = {
+            "dev": (self.db_dev_remediation_username, self.db_dev_remediation_password),
+            "stag": (self.db_staging_remediation_username, self.db_staging_remediation_password),
+            "production": (self.db_production_remediation_username, self.db_production_remediation_password),
+        }[environment]
+        return RemediationDbConfig(
+            host=readonly.host, port=readonly.port, database=readonly.database, username=username, password=password
+        )
 
 
 settings = Settings()

@@ -181,10 +181,18 @@ as Section 7.
   `#dev-alerts`") is implemented — every diagnosis goes to whatever single
   channel `SLACK_WEBHOOK_URL` points at, regardless of the alarm's
   `environment`.
-- **No interactive buttons.** Posting is one-way — this is plain Incoming
-  Webhooks, not Slack's Block Kit interactive components. The planned
-  human-approval workflow (see README's Roadmap) would need a real Slack
-  app with a bot token and request signing, not this webhook mechanism.
+- ~~**No interactive buttons.**~~ **Implemented as of the HITL remediation
+  Phase 1 work** — see
+  `documentation/rds-agent/3.hitl-remediation-phase-1-cancel-query.md`.
+  Incoming Webhook messages *can* carry Block Kit interactive elements
+  (buttons, etc.) — posting still goes through this same
+  `SLACK_WEBHOOK_URL` mechanism, no bot token required. What a click
+  needs is the Slack app behind that webhook having **Interactivity**
+  turned on with a Request URL, plus its **Signing Secret** (from Basic
+  Information) so the app can verify a click actually came from Slack.
+  The click payload's `response_url` is what lets the app update that
+  specific message afterward — also no bot token (`chat:write`) needed
+  for that.
 - **No message threading.** Each diagnosis is a standalone message; an
   `ALARM` and its later `OK` recovery aren't grouped into a thread.
 - **No retry-specific messaging.** If `notify_slack` is reached again via a
