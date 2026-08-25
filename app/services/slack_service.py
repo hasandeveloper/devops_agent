@@ -48,6 +48,33 @@ def _format_diagnosis_text(
     )
 
 
+# Per-action-type copy -- the one place Slack rendering needs to know about each
+# remediation type. Everything else in this file stays generic by row shape.
+# terminate_idle_connection reads more explicitly than cancel_query on purpose: dropping
+# a whole connection is a heavier consequence than interrupting one query, and the
+# copy shouldn't pretend otherwise just to reuse cancel_query's wording.
+_ACTION_COPY = {
+    "cancel_query": {
+        "approve_label": "Approve",
+        "duration_label": "Duration",
+        "verb_done": "cancelled",
+        "verb_failed": "cancellation failed",
+        "consequence": None,
+    },
+    "terminate_idle_connection": {
+        "approve_label": "Terminate Connection",
+        "duration_label": "Idle for",
+        "verb_done": "terminated",
+        "verb_failed": "termination failed",
+        "consequence": "This will drop the connection entirely — the client will need to reconnect.",
+    },
+}
+
+
+def _action_copy(action: dict) -> dict:
+    return _ACTION_COPY.get(action.get("action_type"), _ACTION_COPY["cancel_query"])
+
+
 def _remediation_status_line(action: dict) -> str:
     """Static (button-free) text for a remediation row that's already been decided --
     used once a row leaves `proposed` so a re-rendered message shows history instead
@@ -57,27 +84,31 @@ def _remediation_status_line(action: dict) -> str:
     decided_by = action.get("decided_by") or "someone"
     status = action["status"]
     result = action.get("result") or ""
+    copy = _action_copy(action)
 
     if status == "rejected":
         return f"❌ *PID {pid}* — rejected by {decided_by}"
     if status == "approved":
         return f"⏳ *PID {pid}* — approved by {decided_by}, executing…"
     if status == "failed":
-        return f"⚠️ *PID {pid}* — cancellation failed: {result} (approved by {decided_by})"
+        return f"⚠️ *PID {pid}* — {copy['verb_failed']}: {result} (approved by {decided_by})"
     if status == "executed" and result.startswith("skipped"):
         return f"ℹ️ *PID {pid}* — {result} (approved by {decided_by})"
-    return f"✅ *PID {pid}* — cancelled (approved by {decided_by})"
+    return f"✅ *PID {pid}* — {copy['verb_done']} (approved by {decided_by})"
 
 
 def _build_remediation_row_blocks(action: dict) -> list[dict]:
     if action["status"] != "proposed":
         return [{"type": "section", "text": {"type": "mrkdwn", "text": _remediation_status_line(action)}}]
 
+    copy = _action_copy(action)
+    consequence = f"\n\n_{copy['consequence']}_" if copy["consequence"] else ""
     text = (
         f"*PID:* {action['pid']}\n"
-        f"*Duration:* {_format_duration(action['duration_seconds'])}\n"
+        f"*{copy['duration_label']}:* {_format_duration(action['duration_seconds'])}\n"
         f"*Query:* ```{action['query']}```\n\n"
         f"*Reason:*\n{action['rationale']}"
+        f"{consequence}"
     )
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
@@ -87,7 +118,7 @@ def _build_remediation_row_blocks(action: dict) -> list[dict]:
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Approve"},
+                    "text": {"type": "plain_text", "text": copy["approve_label"]},
                     "style": "primary",
                     "action_id": "approve_remediation",
                     "value": action["id"],

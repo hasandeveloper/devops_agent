@@ -5,7 +5,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from app.agents.shared.schema.remediation import RemediationProposal
 from app.agents.shared.state.agent import AgentState
-from app.prompts.rds.remediation import build_prompt
+from app.prompts.rds.idle_connection_remediation import build_prompt
 from app.services.remediation_service import action_to_dict, create_remediation_action, recompute_incident_status
 from config.llm import get_llm
 from config.mcp import parse_mcp_list_result, stdio_server
@@ -17,33 +17,45 @@ logger = logging.getLogger(__name__)
 
 MCP_SERVERS = {"rds": stdio_server("app.agents.tools.mcp.rds.mcp_server")}
 
-ACTION_TYPE_CANCEL_QUERY = "cancel_query"
+ACTION_TYPE_TERMINATE_IDLE_CONNECTION = "terminate_idle_connection"
 
 
-async def propose_remediation(state: AgentState) -> dict:
+async def propose_idle_connection_remediation(state: AgentState) -> dict:
     diagnosis = state["diagnosis"]
+    existing_remediation = state["remediation"] or []
+
     if diagnosis["risk_tier"] == "low":
-        # No point proposing action on an informational alarm -- see propose_remediation's
-        # scope note in the HITL plan: this gate exists per-action-type, not globally.
-        return {"remediation": None}
+        return {"remediation": existing_remediation or None}
 
     environment = state["context"]["environment"]
 
     client = MultiServerMCPClient(MCP_SERVERS)
     tools = await client.get_tools()
-    candidates_tool = next(t for t in tools if t.name == "get_long_running_queries")
-    # parse_mcp_list_result, not parse_mcp_result -- exactly one long-running query is a
-    # completely ordinary result, not a rare edge case, and parse_mcp_result alone would
-    # collapse it to a bare dict instead of a one-element list (see its docstring).
-    candidates = parse_mcp_list_result(
+    candidates_tool = next(t for t in tools if t.name == "get_idle_in_transaction_connections")
+    # parse_mcp_list_result, not parse_mcp_result -- confirmed live: exactly one idle
+    # candidate collapses to a bare dict under parse_mcp_result (see its docstring),
+    # which breaks the list comprehension below (iterates a dict's string keys instead
+    # of its rows -- "string indices must be integers, not 'str'").
+    idle_connections = parse_mcp_list_result(
         await invoke_tool(
             candidates_tool,
-            {"environment": environment, "min_duration_seconds": settings.remediation_long_query_threshold_seconds},
+            {
+                "environment": environment,
+                "min_idle_seconds": settings.remediation_idle_connection_threshold_seconds,
+            },
         )
     )
 
+    # Duration alone isn't enough -- see the phase's own design note: terminating a
+    # connection is more disruptive than cancelling a query, so only connections
+    # confirmed to actually be blocking something (not just sitting idle) become
+    # candidates at all. This data is already in state["context"]["lock_waits"] from
+    # gather_context.py -- no new tool call needed for this half of the gate.
+    blocking_pids = {lock["blocking_pid"] for lock in state["context"]["lock_waits"]}
+    candidates = [c for c in idle_connections if c["pid"] in blocking_pids]
+
     if not candidates:
-        return {"remediation": None}
+        return {"remediation": existing_remediation or None}
 
     llm = get_llm().with_structured_output(RemediationProposal)
     prompt = build_prompt(environment, diagnosis, state["investigation"], candidates)
@@ -58,11 +70,8 @@ async def propose_remediation(state: AgentState) -> dict:
         for decision in proposal.proposals:
             candidate = candidates_by_pid.get(decision.pid)
             if candidate is None:
-                # The LLM referenced a pid that was never offered -- same belt-and-suspenders
-                # spirit as mcp_server.py's _explain_safety_violation. Never trust a target
-                # blindly, even for a read-only proposal.
                 logger.warning(
-                    "raw_event_id=%s propose_remediation: dropping hallucinated pid=%s",
+                    "raw_event_id=%s propose_idle_connection_remediation: dropping hallucinated pid=%s",
                     state["raw_event"]["id"],
                     decision.pid,
                 )
@@ -72,11 +81,12 @@ async def propose_remediation(state: AgentState) -> dict:
             action = create_remediation_action(
                 db,
                 incident_id=incident_id,
-                action_type=ACTION_TYPE_CANCEL_QUERY,
+                action_type=ACTION_TYPE_TERMINATE_IDLE_CONNECTION,
                 environment=environment,
                 target_pid=decision.pid,
                 target_query=candidate["query"],
                 target_duration_seconds=candidate["duration_seconds"],
+                target_backend_start=candidate["backend_start"],
                 rationale=decision.rationale,
             )
             created.append(action_to_dict(action))
@@ -87,10 +97,12 @@ async def propose_remediation(state: AgentState) -> dict:
         db.close()
 
     logger.info(
-        "raw_event_id=%s propose_remediation: candidates=%d proposed=%d",
+        "raw_event_id=%s propose_idle_connection_remediation: idle=%d blocking=%d proposed=%d",
         state["raw_event"]["id"],
+        len(idle_connections),
         len(candidates),
         len(created),
     )
 
-    return {"remediation": created or None}
+    combined = existing_remediation + created
+    return {"remediation": combined or None}

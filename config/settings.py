@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     # A query running longer than this is a candidate for the "cancel a runaway query"
     # remediation (propose_remediation.py) -- see get_long_running_queries.
     remediation_long_query_threshold_seconds: int = 60
+    # A connection idle-in-transaction longer than this is a candidate for the
+    # "terminate idle connection" remediation (propose_idle_connection_remediation.py)
+    # -- see get_idle_in_transaction_connections. Deliberately higher than the query
+    # threshold above: terminating a connection is more disruptive than cancelling a
+    # query, so the bar to even propose it is set higher.
+    remediation_idle_connection_threshold_seconds: int = 300
     aws_region: str = "ap-south-1"
     # Left blank, config/aws.py falls back to boto3's own default credential chain (a
     # configured AWS CLI profile, instance role, etc.) -- set these when there's no

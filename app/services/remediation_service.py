@@ -17,6 +17,7 @@ def create_remediation_action(
     target_query: str,
     target_duration_seconds: float,
     rationale: str,
+    target_backend_start: float | None = None,
 ) -> RemediationAction:
     action = RemediationAction(
         incident_id=incident_id,
@@ -25,6 +26,7 @@ def create_remediation_action(
         target_pid=target_pid,
         target_query=target_query,
         target_duration_seconds=target_duration_seconds,
+        target_backend_start=target_backend_start,
         rationale=rationale,
     )
     db.add(action)
@@ -40,6 +42,7 @@ def action_to_dict(action: RemediationAction) -> dict:
     """
     return {
         "id": str(action.id),
+        "action_type": action.action_type,
         "pid": action.target_pid,
         "duration_seconds": action.target_duration_seconds,
         "query": action.target_query,

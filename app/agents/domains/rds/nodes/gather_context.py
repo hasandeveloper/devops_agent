@@ -3,7 +3,7 @@ import logging
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from app.agents.shared.state.agent import AgentState
-from config.mcp import parse_mcp_result, stdio_server
+from config.mcp import parse_mcp_list_result, parse_mcp_result, stdio_server
 from config.reliability.mcp_timeouts import invoke_tool
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,12 @@ async def gather_context(state: AgentState) -> dict:
         cluster_id = state["raw_event"].get("resource_id")
 
     cluster_info = parse_mcp_result(await invoke_tool(describe_cluster_tool, {"cluster_id": cluster_id}))
-    recent_trend = parse_mcp_result(
+    # parse_mcp_list_result, not parse_mcp_result -- these three tools return list[dict],
+    # and parse_mcp_result alone collapses a single-item list to a bare dict (see its
+    # docstring). recent_trend/active_connections/lock_waits are all iterated as lists
+    # downstream, and a single datapoint/state-row/lock-pair is a completely normal,
+    # not-even-rare result to get back.
+    recent_trend = parse_mcp_list_result(
         await invoke_tool(
             trend_tool,
             {
@@ -57,8 +62,8 @@ async def gather_context(state: AgentState) -> dict:
     # tools below connect to -- it's not in the SNS payload, only fetchable via
     # this separate lookup on the alarm's own ARN.
     environment = parse_mcp_result(await invoke_tool(alarm_environment_tool, {"alarm_arn": payload["AlarmArn"]}))
-    active_connections = parse_mcp_result(await invoke_tool(active_connections_tool, {"environment": environment}))
-    lock_waits = parse_mcp_result(await invoke_tool(lock_waits_tool, {"environment": environment}))
+    active_connections = parse_mcp_list_result(await invoke_tool(active_connections_tool, {"environment": environment}))
+    lock_waits = parse_mcp_list_result(await invoke_tool(lock_waits_tool, {"environment": environment}))
 
     logger.info(
         "raw_event_id=%s cluster_id=%s environment=%s lock_waits=%d",

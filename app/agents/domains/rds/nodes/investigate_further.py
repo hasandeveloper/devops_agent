@@ -8,7 +8,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from app.agents.shared.state.agent import AgentState
 from app.prompts.rds.investigation import build_prompt
 from config.llm import get_llm
-from config.mcp import parse_mcp_result, stdio_server
+from config.mcp import parse_mcp_list_result, parse_mcp_result, stdio_server
 from config.reliability.mcp_timeouts import with_timeout
 from config.reliability.token_budget import TokenBudgetTracker
 from config.settings import settings
@@ -46,13 +46,17 @@ def _extract_query_evidence(messages: list) -> list[dict]:
     for msg in messages:
         if not isinstance(msg, ToolMessage):
             continue
-        result = parse_mcp_result(msg.content)
-        if msg.name == "get_performance_insights_top_sql" and result:
-            top = result[0] if isinstance(result, list) else result
-            if top.get("statement"):
-                evidence.append({"tool": msg.name, "query": top["statement"]})
-        elif msg.name == "explain_query_for_pid" and isinstance(result, dict) and result.get("query"):
-            evidence.append({"tool": msg.name, "query": result["query"]})
+        if msg.name == "get_performance_insights_top_sql":
+            # parse_mcp_list_result, not parse_mcp_result -- this tool returns
+            # list[dict], and exactly one top-load statement is an ordinary result,
+            # not a rare edge case (see config/mcp.py's parse_mcp_list_result docstring).
+            top_sql = parse_mcp_list_result(msg.content)
+            if top_sql and top_sql[0].get("statement"):
+                evidence.append({"tool": msg.name, "query": top_sql[0]["statement"]})
+        elif msg.name == "explain_query_for_pid":
+            result = parse_mcp_result(msg.content)
+            if isinstance(result, dict) and result.get("query"):
+                evidence.append({"tool": msg.name, "query": result["query"]})
     return evidence
 
 

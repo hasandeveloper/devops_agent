@@ -5,6 +5,7 @@ from app.agents.domains.rds.nodes.gather_context import gather_context
 from app.agents.domains.rds.nodes.investigate_further import investigate_further
 from app.agents.domains.rds.nodes.notify_slack import notify_slack
 from app.agents.domains.rds.nodes.persist_incident import persist_incident_node
+from app.agents.domains.rds.nodes.propose_idle_connection_remediation import propose_idle_connection_remediation
 from app.agents.domains.rds.nodes.propose_remediation import propose_remediation
 from app.agents.domains.rds.nodes.retrieve_similar_incidents import retrieve_similar_incidents
 from app.agents.shared.state.agent import AgentState
@@ -18,6 +19,7 @@ def _build_graph():
     graph.add_node("diagnose", diagnose)
     graph.add_node("persist_incident", persist_incident_node)
     graph.add_node("propose_remediation", propose_remediation)
+    graph.add_node("propose_idle_connection_remediation", propose_idle_connection_remediation)
     graph.add_node("notify_slack", notify_slack)
     graph.set_entry_point("gather_context")
     graph.add_edge("gather_context", "retrieve_similar_incidents")
@@ -25,7 +27,8 @@ def _build_graph():
     graph.add_edge("investigate_further", "diagnose")
     graph.add_edge("diagnose", "persist_incident")
     graph.add_edge("persist_incident", "propose_remediation")
-    graph.add_edge("propose_remediation", "notify_slack")
+    graph.add_edge("propose_remediation", "propose_idle_connection_remediation")
+    graph.add_edge("propose_idle_connection_remediation", "notify_slack")
     graph.add_edge("notify_slack", END)
     return graph.compile()
 
