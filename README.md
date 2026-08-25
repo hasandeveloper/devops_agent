@@ -31,6 +31,7 @@
 - [Architecture](#architecture)
 - [Main components](#main-components)
 - [Project structure](#project-structure)
+- [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
   - [Option 1 — Docker](#option-1--docker)
   - [Option 2 — Run locally](#option-2--run-locally)
@@ -484,6 +485,20 @@ tests/
 documentation/
     → Detailed technical documentation
 ```
+
+<a id="prerequisites"></a>
+# ✅ Prerequisites
+
+**Mandatory — do these before (or immediately after) you first boot the project.** Without them, the app runs but nothing useful happens: no alarms arrive, no diagnosis reaches anyone, and the database roles the agent depends on don't exist yet.
+
+| Document | Purpose |
+|---|---|
+| `documentation/devops/sns/sns.md` | How to create/subscribe/register the SNS topic that delivers alarms to this app |
+| `documentation/devops/slack/slack.md` | How to create the Slack Incoming Webhook and choose which channel gets diagnoses |
+| `documentation/devops/rds/rds.md` | How to configure CloudWatch alarms for RDS/Aurora (connections, CPU, memory, ACU capacity) |
+| `documentation/rds-agent/1.your-rds-readonly-db-role-setup.md` | How the read-only and write-capable (remediation) database roles are configured |
+
+Do these in order — SNS first (nothing arrives without it), then Slack (nothing gets reported without it), then the RDS alarms themselves, then the database roles (required for every investigation and remediation tool the agent calls). None of these are optional for a working setup, even a local/dev one.
 
 <a id="quick-start"></a>
 # 🚀 Quick Start
