@@ -74,7 +74,7 @@ This returns a `TopicArn`, e.g.:
 
 ```json
 {
-  "TopicArn": "arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts"
+  "TopicArn": "arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts"
 }
 ```
 
@@ -93,7 +93,7 @@ a duplicate.
 With the tunnel from Step 2 already running:
 
 ```bash
-TOPIC_ARN="arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts"
+TOPIC_ARN="arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts"
 ENDPOINT="https://<your-tunnel-or-domain>/webhooks/cloudwatch"
 
 aws sns subscribe \
@@ -226,7 +226,7 @@ setup), skip ahead to 9.2 and use its name.
 
 Otherwise, create a throwaway alarm just for this test — any metric works,
 since `set-alarm-state` overrides whatever the real data says. This one
-needs no real resource behind it (`sgm-backend-dev-stage-mb-01-instance-1`
+needs no real resource behind it (`my-cluster-dev-instance-1`
 is only used as a dimension value, not actually queried until CloudWatch
 next evaluates the metric on its own):
 
@@ -235,7 +235,7 @@ aws cloudwatch put-metric-alarm \
   --alarm-name "SNS Test Alarm" \
   --namespace "AWS/RDS" \
   --metric-name CPUUtilization \
-  --dimensions Name=DBInstanceIdentifier,Value=sgm-backend-dev-stage-mb-01-instance-1 \
+  --dimensions Name=DBInstanceIdentifier,Value=my-cluster-dev-instance-1 \
   --statistic Average \
   --period 300 \
   --evaluation-periods 1 \

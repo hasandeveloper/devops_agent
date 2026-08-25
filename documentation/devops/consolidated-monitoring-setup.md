@@ -404,14 +404,14 @@ For example:
 
 ```bash
 REGION="ap-south-1"
-SNS_TOPIC="arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts"
+SNS_TOPIC="arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts"
 ENVIRONMENT="dev"
-CLUSTER_NAME="sgm-development-cluster"
+CLUSTER_NAME="my-cluster-development"
 
 INSTANCE_ID="i-075d4878cffb36797"
 VOLUME_ID="vol-0d7ac883b8fc21530"
 
-LB_DIM="app/sgm-alb-mumbai/506663c423928032"
+LB_DIM="app/my-alb/1234567890abcdef"
 ```
 
 ---
@@ -433,10 +433,10 @@ For example:
 
 ```zsh
 typeset -A TG=(
-  ["sgm-backend-dev"]="targetgroup/sgm-dev-backend-mb-01/67a53f62eee32383"
-  ["sgm-frontend-dev"]="targetgroup/sgm-dev-frontend-mb-01/a5fbd03416ef7e38"
-  ["sgm-frontend-dev-v2"]="targetgroup/sgm-dev-frontend-v2-mb-01/ce8b58a8b0901f92"
-  ["sgm-admin-dev"]="targetgroup/sgm-dev-admin-mb-01/bedd928006d33b37"
+  ["my-backend-dev"]="targetgroup/my-dev-backend/2222222222222222"
+  ["my-frontend-dev"]="targetgroup/my-dev-frontend/3333333333333333"
+  ["my-frontend-dev-v2"]="targetgroup/my-dev-frontend-v2/4444444444444444"
+  ["my-admin-dev"]="targetgroup/my-dev-admin/1111111111111111"
 )
 ```
 
@@ -858,18 +858,18 @@ ALARMS=(
   "Dev Memory Spike"
   "Dev Disk Spike"
   "Dev EC2 Instance Health"
-  "Dev sgm-backend-dev Target Unhealthy"
-  "Dev sgm-frontend-dev Target Unhealthy"
-  "Dev sgm-frontend-dev-v2 Target Unhealthy"
-  "Dev sgm-admin-dev Target Unhealthy"
-  "Dev sgm-backend-dev Latency"
-  "Dev sgm-frontend-dev Latency"
-  "Dev sgm-frontend-dev-v2 Latency"
-  "Dev sgm-admin-dev Latency"
-  "Dev sgm-backend-dev 5xx Errors"
-  "Dev sgm-frontend-dev 5xx Errors"
-  "Dev sgm-frontend-dev-v2 5xx Errors"
-  "Dev sgm-admin-dev 5xx Errors"
+  "Dev my-backend-dev Target Unhealthy"
+  "Dev my-frontend-dev Target Unhealthy"
+  "Dev my-frontend-dev-v2 Target Unhealthy"
+  "Dev my-admin-dev Target Unhealthy"
+  "Dev my-backend-dev Latency"
+  "Dev my-frontend-dev Latency"
+  "Dev my-frontend-dev-v2 Latency"
+  "Dev my-admin-dev Latency"
+  "Dev my-backend-dev 5xx Errors"
+  "Dev my-frontend-dev 5xx Errors"
+  "Dev my-frontend-dev-v2 5xx Errors"
+  "Dev my-admin-dev 5xx Errors"
 )
 ```
 
@@ -1016,8 +1016,8 @@ aws rds describe-db-clusters \
 Example clusters previously discovered:
 
 ```text
-sgm-backend-dev-stage-mb-01
-sgm-serverless-db
+my-cluster-dev
+my-serverless-db
 ```
 
 The first cluster has been configured with alarms.
@@ -1061,7 +1061,7 @@ aws cloudwatch put-metric-alarm \
   --alarm-name "Dev Aurora Connections" \
   --namespace "AWS/RDS" \
   --metric-name DatabaseConnections \
-  --dimensions Name=DBInstanceIdentifier,Value=sgm-backend-dev-stage-mb-01-instance-1 \
+  --dimensions Name=DBInstanceIdentifier,Value=my-cluster-dev-instance-1 \
   --statistic Average \
   --period 300 \
   --evaluation-periods 2 \
@@ -1069,8 +1069,8 @@ aws cloudwatch put-metric-alarm \
   --comparison-operator GreaterThanThreshold \
   --treat-missing-data notBreaching \
   --tags Key=environment,Value=dev \
-  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts \
-  --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts \
+  --alarm-actions arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts \
+  --ok-actions arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts \
   --region ap-south-1
 ```
 
@@ -1091,7 +1091,7 @@ aws cloudwatch put-metric-alarm \
   --alarm-name "Dev Aurora CPU Spike" \
   --namespace "AWS/RDS" \
   --metric-name CPUUtilization \
-  --dimensions Name=DBInstanceIdentifier,Value=sgm-backend-dev-stage-mb-01-instance-1 \
+  --dimensions Name=DBInstanceIdentifier,Value=my-cluster-dev-instance-1 \
   --statistic Average \
   --period 300 \
   --evaluation-periods 1 \
@@ -1099,8 +1099,8 @@ aws cloudwatch put-metric-alarm \
   --comparison-operator GreaterThanThreshold \
   --treat-missing-data missing \
   --tags Key=environment,Value=dev \
-  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts \
-  --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts \
+  --alarm-actions arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts \
+  --ok-actions arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts \
   --region ap-south-1
 ```
 
@@ -1128,7 +1128,7 @@ aws cloudwatch put-metric-alarm \
   --alarm-name "Dev Aurora Low Memory" \
   --namespace "AWS/RDS" \
   --metric-name FreeableMemory \
-  --dimensions Name=DBInstanceIdentifier,Value=sgm-backend-dev-stage-mb-01-instance-1 \
+  --dimensions Name=DBInstanceIdentifier,Value=my-cluster-dev-instance-1 \
   --statistic Average \
   --period 300 \
   --evaluation-periods 2 \
@@ -1136,8 +1136,8 @@ aws cloudwatch put-metric-alarm \
   --comparison-operator LessThanThreshold \
   --treat-missing-data notBreaching \
   --tags Key=environment,Value=dev \
-  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts \
-  --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts \
+  --alarm-actions arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts \
+  --ok-actions arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts \
   --region ap-south-1
 ```
 
@@ -1180,7 +1180,7 @@ aws cloudwatch put-metric-alarm \
   --alarm-name "Dev Aurora ACU Ceiling" \
   --namespace "AWS/RDS" \
   --metric-name ServerlessDatabaseCapacity \
-  --dimensions Name=DBClusterIdentifier,Value=sgm-backend-dev-stage-mb-01 \
+  --dimensions Name=DBClusterIdentifier,Value=my-cluster-dev \
   --statistic Average \
   --period 300 \
   --evaluation-periods 3 \
@@ -1188,8 +1188,8 @@ aws cloudwatch put-metric-alarm \
   --comparison-operator GreaterThanOrEqualToThreshold \
   --treat-missing-data notBreaching \
   --tags Key=environment,Value=dev \
-  --alarm-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts \
-  --ok-actions arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts \
+  --alarm-actions arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts \
+  --ok-actions arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts \
   --region ap-south-1
 ```
 
@@ -1625,7 +1625,7 @@ credential mismatch
 
 ---
 
-# 27. Worked Example — `sgm-development-cluster`
+# 27. Worked Example — `my-cluster-development`
 
 The following values represent the first environment where this runbook was executed.
 
@@ -1633,11 +1633,11 @@ The following values represent the first environment where this runbook was exec
 | ------------- | --------------------------------------------------------- |
 | Region        | `ap-south-1`                                              |
 | Environment   | `dev`                                                     |
-| SNS topic     | `arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts` |
-| ECS cluster   | `sgm-development-cluster`                                 |
+| SNS topic     | `arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts` |
+| ECS cluster   | `my-cluster-development`                                 |
 | EC2 instance  | `i-075d4878cffb36797`                                     |
 | EBS volume    | `vol-0d7ac883b8fc21530`                                   |
-| Load balancer | `app/sgm-alb-mumbai/506663c423928032`                     |
+| Load balancer | `app/my-alb/1234567890abcdef`                     |
 
 ---
 
@@ -1645,10 +1645,10 @@ The following values represent the first environment where this runbook was exec
 
 | Service               | Target Group                                             |
 | --------------------- | -------------------------------------------------------- |
-| `sgm-backend-dev`     | `targetgroup/sgm-dev-backend-mb-01/67a53f62eee32383`     |
-| `sgm-frontend-dev`    | `targetgroup/sgm-dev-frontend-mb-01/a5fbd03416ef7e38`    |
-| `sgm-frontend-dev-v2` | `targetgroup/sgm-dev-frontend-v2-mb-01/ce8b58a8b0901f92` |
-| `sgm-admin-dev`       | `targetgroup/sgm-dev-admin-mb-01/bedd928006d33b37`       |
+| `my-backend-dev`     | `targetgroup/my-dev-backend/2222222222222222`     |
+| `my-frontend-dev`    | `targetgroup/my-dev-frontend/3333333333333333`    |
+| `my-frontend-dev-v2` | `targetgroup/my-dev-frontend-v2/4444444444444444` |
+| `my-admin-dev`       | `targetgroup/my-dev-admin/1111111111111111`       |
 
 ---
 
@@ -1802,7 +1802,7 @@ The current monitoring architecture provides:
                     DevOps Agent
 ```
 
-For `sgm-development-cluster`, the current coverage is:
+For `my-cluster-development`, the current coverage is:
 
 ```text
 ECS Infrastructure       4 alarms
@@ -1817,8 +1817,8 @@ Aurora PostgreSQL        4 alarms
 Next environments:
 
 ```text
-sgm-staging-cluster
-sgm-production-cluster
+my-cluster-staging
+my-cluster-production
 ```
 
 Before production setup, confirm whether the production ECS cluster uses an Auto Scaling Group and apply the ASG-specific guidance in this document.
