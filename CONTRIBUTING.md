@@ -18,7 +18,7 @@ docker compose up --build
 You don't need real AWS credentials or a real Slack webhook to work on most
 of the codebase -- they're only required for the RDS MCP server's live AWS
 calls and for `notify_slack`'s Slack POST, both of which are exercised by
-`tests/eval/` (real API calls, not run by default) rather than `tests/unit/`.
+`tests/eval/` (real API calls, not run by default) rather than `tests/guardrails/`.
 
 ## Running tests
 
@@ -29,7 +29,7 @@ pytest -m llm tests/eval   # golden-dataset check against a real LLM call --
                             # LLM_PROVIDER/OPENAI_MODEL/ANTHROPIC_MODEL
 ```
 
-New behavior should come with a `tests/unit/` test where it can be tested
+New behavior should come with a `tests/guardrails/` test where it can be tested
 without a live API call. Changes to `app/prompts/rds/` or `diagnose()`'s
 output shape should also update/extend `tests/eval/`'s golden dataset.
 
