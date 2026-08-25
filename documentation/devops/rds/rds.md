@@ -248,11 +248,11 @@ REGION="ap-south-1"
 
 ENVIRONMENT="dev"
 
-SNS_TOPIC="arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts"
+SNS_TOPIC="arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts"
 
-DB_CLUSTER_IDENTIFIER="sgm-backend-dev-stage-mb-01"
+DB_CLUSTER_IDENTIFIER="my-cluster-dev"
 
-DB_INSTANCE_IDENTIFIER="sgm-backend-dev-stage-mb-01-instance-1"
+DB_INSTANCE_IDENTIFIER="my-cluster-dev-instance-1"
 ```
 
 For another environment, change the values accordingly.
@@ -1423,11 +1423,11 @@ For an already-known Aurora Serverless v2 cluster:
 REGION="ap-south-1"
 ENVIRONMENT="dev"
 
-SNS_TOPIC="arn:aws:sns:ap-south-1:376129878424:devops-agent-alerts"
+SNS_TOPIC="arn:aws:sns:ap-south-1:123456789012:devops-agent-alerts"
 
-DB_CLUSTER_IDENTIFIER="sgm-backend-dev-stage-mb-01"
+DB_CLUSTER_IDENTIFIER="my-cluster-dev"
 
-DB_INSTANCE_IDENTIFIER="sgm-backend-dev-stage-mb-01-instance-1"
+DB_INSTANCE_IDENTIFIER="my-cluster-dev-instance-1"
 ```
 
 Create these four alarms:

@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     langsmith_project: str = ""
 
     # App database connections for the RDS domain agent's DB diagnostic tools.
-    # Field names mirror the sgm-backend app's own DB_{ENV}_* .env convention,
+    # Field names mirror the main app's own DB_{ENV}_* .env convention,
     # except "readonly_" stays explicit in the credential fields -- unlike the
     # app's own DB_STAGING_USERNAME/PASSWORD, these must never be superuser creds.
     db_dev_host: str = ""
