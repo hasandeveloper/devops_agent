@@ -10,6 +10,7 @@
 ![Postgres](https://img.shields.io/badge/Postgres-pgvector-336791)
 ![Celery](https://img.shields.io/badge/Celery-Redis-37814A)
 ![LLM](https://img.shields.io/badge/LLM-OpenAI%20%7C%20Anthropic-black)
+![Tests](https://github.com/hasandeveloper/devops_agent/actions/workflows/tests.yml/badge.svg)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 </div>
@@ -261,6 +262,8 @@ This connection is blocking other queries.
 The re-check before acting is also stronger than Phase 1's — in addition to matching the query text, it confirms the connection's exact start timestamp still matches, since a pid can be reused by an unrelated newer connection and query text alone isn't a strong enough fingerprint for an action this disruptive.
 
 One real gap worth knowing: there's no native CloudWatch metric for idle-in-transaction connection count, and Performance Insights doesn't catch it either (an idle session contributes zero to its Database Load measurement by definition) — this phase's own tool has to query `pg_stat_activity` directly because AWS's own monitoring has nothing to offer here. See `documentation/rds-agent/4.hitl-remediation-phase-2-terminate-idle-connection.md` §8 for the full detail and the workarounds if you want a dedicated alarm anyway.
+
+**A resolved alarm never proposes anything, either.** CloudWatch sends a notification on every state change, including back to `OK` — both remediation phases check the triggering alarm's own state and skip proposing an action entirely if it isn't currently `ALARM`. Diagnosis still runs either way; only the propose-a-fix step short-circuits. This exists because two independent alarms fired off the same underlying load once re-proposed terminating connections a *different* alarm's own approved fix had already handled moments earlier.
 
 ## The full roadmap
 
@@ -658,6 +661,8 @@ Run it when changing:
 - Investigation prompts
 - Diagnosis prompts
 
+Both suites run automatically on every pull request via `.github/workflows/tests.yml` (guardrails against a Redis service container, eval against the real LLM configured in secrets) — a PR can't merge unless both are green.
+
 <a id="key-features"></a>
 # ✨ Key Features
 
@@ -673,6 +678,7 @@ A quick summary of what's described above, in one place:
 - ✅ Asynchronous alarm processing — the API responds immediately, the investigation runs in the background
 - ✅ Dockerized — the full stack runs with `docker compose up --build`
 - ✅ Automated tests, split into a fast guardrail suite and an LLM evaluation suite
+- ✅ CI on every pull request — both suites must pass before a merge is allowed
 
 <a id="current-status"></a>
 # 🗺️ Current Status
@@ -719,7 +725,7 @@ None of these route anywhere yet — each currently raises `NotImplementedError`
 <a id="further-documentation"></a>
 # 📚 Further Documentation
 
-For deeper technical details follow these below sequencial order:
+For deeper technical details follow these below sequential order:
 
 | Document | Purpose |
 |---|---|
