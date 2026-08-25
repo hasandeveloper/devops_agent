@@ -27,6 +27,20 @@ async def propose_remediation(state: AgentState) -> dict:
         # scope note in the HITL plan: this gate exists per-action-type, not globally.
         return {"remediation": None}
 
+    if state["raw_event"]["payload"].get("NewStateValue") != "ALARM":
+        # CloudWatch still sends a notification when an alarm clears (NewStateValue
+        # "OK") -- by the time that notification reaches this pipeline, whatever
+        # triggered it may already be gone. Proposing to kill something because of an
+        # alarm that's already resolved is backwards, and a real incident seen live:
+        # a second, unrelated alarm's "Resolved" pipeline run re-proposed pids that had
+        # just been terminated moments earlier by a *different* alarm's remediation.
+        logger.info(
+            "raw_event_id=%s propose_remediation: skipping, alarm state=%s (not ALARM)",
+            state["raw_event"]["id"],
+            state["raw_event"]["payload"].get("NewStateValue"),
+        )
+        return {"remediation": None}
+
     environment = state["context"]["environment"]
 
     client = MultiServerMCPClient(MCP_SERVERS)

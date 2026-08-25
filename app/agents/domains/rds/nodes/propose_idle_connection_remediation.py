@@ -27,6 +27,18 @@ async def propose_idle_connection_remediation(state: AgentState) -> dict:
     if diagnosis["risk_tier"] == "low":
         return {"remediation": existing_remediation or None}
 
+    if state["raw_event"]["payload"].get("NewStateValue") != "ALARM":
+        # See propose_remediation.py's identical check for why: an alarm's own
+        # "resolved" notification still runs this whole pipeline, and shouldn't end
+        # in proposing to terminate a connection based on a condition that's already
+        # cleared.
+        logger.info(
+            "raw_event_id=%s propose_idle_connection_remediation: skipping, alarm state=%s (not ALARM)",
+            state["raw_event"]["id"],
+            state["raw_event"]["payload"].get("NewStateValue"),
+        )
+        return {"remediation": existing_remediation or None}
+
     environment = state["context"]["environment"]
 
     client = MultiServerMCPClient(MCP_SERVERS)
