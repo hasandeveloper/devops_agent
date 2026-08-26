@@ -377,6 +377,11 @@ This prevents a large number of alarms from turning into an uncontrolled number 
           │       ↓             │
           │ Save incident       │
           │       ↓             │
+          │ Propose remediation │
+          │       ↓             │
+          │ Propose idle conn.  │
+          │ remediation         │
+          │       ↓             │
           │ Notify Slack        │
           └──────────┬──────────┘
                      │
