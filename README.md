@@ -34,6 +34,7 @@
 - [Project structure](#project-structure)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
+  - [System Requirements](#system-requirements)
   - [Option 1 — Docker](#option-1--docker)
   - [Option 2 — Run locally](#option-2--run-locally)
 - [API Endpoints](#api-endpoints)
@@ -532,6 +533,17 @@ Do these in order — SNS first (nothing arrives without it), then Slack (nothin
 > `localhost:8000`. Without this, everything else works, but no CloudWatch
 > alarm will ever reach your machine.
 
+## System Requirements
+
+| Requirement | Version | Needed for |
+|---|---|---|
+| **Python** | **3.13 or newer** (verified on 3.13 and 3.14) | Option 2 only — the Docker image pins its own Python, so Option 1 doesn't need this on the host at all |
+| **Docker + Docker Compose** | Any recent version | Option 1 (the whole stack), and Option 2 (Postgres + Redis still run in containers even for a "local" run) |
+| **PostgreSQL** | 16, with the **pgvector** extension | Both options — `pgvector/pgvector:pg16` in `docker-compose.yml` already bundles this; only matters on its own if you're pointing at a database you manage yourself instead |
+| **Redis** | 7+ | Both options — Celery's broker and the webhook rate limiter both require a live Redis; `docker-compose.yml`'s `redis` service covers this automatically |
+
+**A note on Python versions:** the pinned dependencies in `requirements.txt` (`fastapi`, `sqlalchemy`, and transitively `mcp`/`starlette`) have version floors specifically chosen to install cleanly on Python 3.14, not just the Docker image's 3.13 — both were verified with a clean `pip install -r requirements.txt` and a full test run before being pinned. If your system Python is older than 3.13, use Option 1 (Docker) instead of installing a separate interpreter.
+
 ## Option 1 — Docker
 
 The easiest way to run the complete system is:
@@ -580,11 +592,13 @@ Configure:
 cp .env.example .env
 ```
 
-Start PostgreSQL:
+Start PostgreSQL and Redis:
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres redis
 ```
+
+Both still run in containers here — Celery's broker and the webhook rate limiter both need a live Redis, and skipping this step leaves the API up but every alarm silently stuck (nothing raises an error; `aws_sns_event_job.delay(...)` just has nowhere to deliver to).
 
 Run migrations:
 
