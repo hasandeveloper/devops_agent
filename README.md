@@ -326,6 +326,8 @@ Two dedicated PostgreSQL roles enforce this separation at the database level, no
 - A **read-only** role, used by every investigation tool.
 - A **separate, minimally-privileged** role, used only by the write actions — granted just enough to cancel a query, terminate a connection, and read other sessions' query text (the same `pg_signal_backend` grant covers both `pg_cancel_backend` and `pg_terminate_backend`), never superuser, never table access.
 
+**A valid Slack signature isn't authorization to approve, either.** It proves a click genuinely came from Slack — not that the clicking user is allowed to trigger a write action. `SLACK_APPROVER_ALLOWLIST` (comma-separated Slack user IDs/usernames) closes that gap, and fails closed: blank means nobody can approve. Only approving is gated — rejecting a proposed action never triggers a write, so there's nothing there to protect.
+
 <a id="cost-and-reliability-controls"></a>
 # 💰 Cost and reliability controls
 

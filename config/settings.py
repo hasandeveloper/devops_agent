@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     # app/controllers/concerns/webhooks/verifiable.py's verify_slack_signature.
     # Copied from the Slack app's Basic Information page, not the incoming webhook URL.
     slack_signing_secret: str = ""
+    # Who is allowed to approve a remediation action (Approve / Approve All Remaining)
+    # in POST /webhooks/slack/interactions -- comma-separated Slack user IDs and/or
+    # usernames, e.g. "U0123ABC,jane.doe". A valid Slack signature only proves the
+    # click came from Slack, not that the clicking user is authorized to trigger a
+    # write action (pg_cancel_backend/pg_terminate_backend) -- this is that missing
+    # check. Deliberately fails closed: blank means nobody is authorized, not
+    # "check disabled" (unlike GITHUB_WEBHOOK_SECRET above) -- an unconfigured
+    # allowlist should never silently mean "anyone can approve." Rejecting a
+    # remediation is not gated by this; only approving one is.
+    slack_approver_allowlist: str = ""
     # A query running longer than this is a candidate for the "cancel a runaway query"
     # remediation (propose_remediation.py) -- see get_long_running_queries.
     remediation_long_query_threshold_seconds: int = 60
@@ -164,6 +174,12 @@ class Settings(BaseSettings):
         return RemediationDbConfig(
             host=readonly.host, port=readonly.port, database=readonly.database, username=username, password=password
         )
+
+    def slack_approver_allowlist_set(self) -> set[str]:
+        """Parses SLACK_APPROVER_ALLOWLIST into a lowercased set for a forgiving match
+        against a Slack user's id/username/name -- see the field's own comment for why
+        this fails closed on blank rather than disabling the check."""
+        return {entry.strip().lower() for entry in self.slack_approver_allowlist.split(",") if entry.strip()}
 
 
 settings = Settings()

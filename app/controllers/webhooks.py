@@ -19,7 +19,7 @@ from app.services.remediation_service import (
     get_remediations_for_incident,
     recompute_incident_status,
 )
-from app.services.slack_service import post_remediation_update
+from app.services.slack_service import post_remediation_update, post_unauthorized_approver_notice
 from jobs.remediation_job import execute_remediation_job
 from jobs.webhooks_job import aws_sns_event_job
 from app.controllers.concerns.webhooks.verifiable import (
@@ -50,6 +50,18 @@ def _extract_resource_id(alarm_payload: dict) -> str | None:
         if dim.get("name") in _RESOURCE_DIMENSION_NAMES:
             return dim.get("value")
     return None
+
+
+def _is_authorized_approver(user: dict) -> bool:
+    """A valid Slack signature only proves the click came from Slack, not that this
+    particular clicking user is authorized to approve a write action -- see
+    settings.slack_approver_allowlist's own comment for why this fails closed.
+    Matches on id, username, or name -- whichever the operator put in the allowlist."""
+    allowlist = settings.slack_approver_allowlist_set()
+    if not allowlist:
+        return False
+    identifiers = {str(v).lower() for v in (user.get("id"), user.get("username"), user.get("name")) if v}
+    return bool(identifiers & allowlist)
 
 
 async def handle_sns_control_message(
@@ -135,13 +147,22 @@ async def handle_cloudwatch_webhook(request: Request, db: Session) -> dict:
     except (KeyError, json.JSONDecodeError):
         alarm_payload = {"raw_message": message.get("Message")}
 
-    event = store_raw_event(
+    event, is_new = store_raw_event(
         db,
         source=EventSource.cloudwatch,
         event_type=alarm_payload.get("AlarmName", "unknown_alarm"),
         resource_id=_extract_resource_id(alarm_payload),
         payload=alarm_payload,
+        external_event_id=message.get("MessageId"),
     )
+
+    if not is_new:
+        # SNS redelivered a notification we already processed -- same MessageId as an
+        # existing row. Acknowledge it like any other successful delivery (so SNS
+        # doesn't keep retrying) without running the pipeline a second time for
+        # something already diagnosed/proposed.
+        logger.info("duplicate SNS delivery, message_id=%s raw_event_id=%s", message.get("MessageId"), event.id)
+        return {"status": "duplicate", "raw_event_id": str(event.id)}
 
     aws_sns_event_job.delay(
         {"id": str(event.id), "source": str(event.source), "resource_id": event.resource_id, "payload": alarm_payload}
@@ -162,12 +183,13 @@ async def handle_github_webhook(request: Request, db: Session) -> dict:
 
     repo = payload.get("repository", {}).get("full_name")
 
-    event = store_raw_event(
+    event, _is_new = store_raw_event(
         db,
         source=EventSource.github_actions,
         event_type=event_type,
         resource_id=repo,
         payload=payload,
+        external_event_id=request.headers.get("x-github-delivery"),
     )
 
     return {"status": "stored", "raw_event_id": str(event.id)}
@@ -221,6 +243,15 @@ async def handle_slack_interaction(request: Request, db: Session) -> dict:
     response_url = payload["response_url"]
     user = payload.get("user", {})
     decided_by = user.get("username") or user.get("name") or user.get("id", "unknown")
+
+    # Only approving is gated -- rejecting doesn't trigger any write action, so there's
+    # nothing for an allowlist to protect there. See _is_authorized_approver's docstring.
+    if action_id in ("approve_all_remediations", "approve_remediation") and not _is_authorized_approver(user):
+        logger.warning(
+            "unauthorized approval attempt by decided_by=%s action_id=%s value=%s", decided_by, action_id, value
+        )
+        await post_unauthorized_approver_notice(response_url, decided_by=decided_by)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not authorized to approve remediation")
 
     if action_id == "approve_all_remediations":
         incident_id = uuid.UUID(value)

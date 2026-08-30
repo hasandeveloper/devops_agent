@@ -189,6 +189,23 @@ def _build_message(
     return {"text": text, "blocks": blocks}
 
 
+async def post_unauthorized_approver_notice(response_url: str, *, decided_by: str) -> None:
+    """Tells the clicking user their approval didn't count, without touching the
+    original message -- `replace_original: False` means this is visible only to them,
+    not a change everyone in the channel sees, unlike post_remediation_update's full
+    message replacement. Best-effort: a failure here is logged, not raised, since the
+    caller's own 403 to Slack already communicates the rejection at the protocol level."""
+    payload = {
+        "response_type": "ephemeral",
+        "replace_original": False,
+        "text": "You're not authorized to approve remediation actions. Ask an admin to add you to SLACK_APPROVER_ALLOWLIST.",
+    }
+    try:
+        await _post(response_url, payload, log_context=f"unauthorized approver notice for decided_by={decided_by}")
+    except httpx.HTTPError:
+        logger.exception("failed to post unauthorized approver notice for decided_by=%s", decided_by)
+
+
 async def _post(url: str, payload: dict, *, log_context: str) -> None:
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(url, json=payload)

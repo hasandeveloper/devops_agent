@@ -49,6 +49,28 @@ _ACTION_HANDLERS = {
 }
 
 
+def _outcome_for(result: dict, verb: str, tool_name: str) -> tuple[RemediationStatus, str]:
+    """Turns a write tool's raw result into (status, result text) -- pulled out as its
+    own pure function so this decision is testable without a database or an MCP call.
+
+    Three distinct outcomes, not two:
+      - action_taken=False: the pre-check itself declined (pid gone, state changed,
+        wrong query). Nothing was attempted -- a safe no-op, not a failure.
+      - action_taken=True, signal_sent=True: pg_cancel_backend/pg_terminate_backend
+        was called and Postgres confirms the signal was delivered.
+      - action_taken=True, signal_sent=False: the pre-check passed and Postgres was
+        actually asked to act, but it reports the signal was NOT delivered. Reporting
+        this as a plain success would tell a human "cancelled" when nothing may have
+        actually happened -- treated as a failure, same as an exception, so it gets
+        the same visibly-different Slack copy instead of a false checkmark.
+    """
+    if not result["action_taken"]:
+        return RemediationStatus.executed, f"skipped: {result['skipped']}"
+    if result["signal_sent"]:
+        return RemediationStatus.executed, verb
+    return RemediationStatus.failed, f"{tool_name} returned signal_sent=false -- the write may not have taken effect"
+
+
 async def _execute(remediation_id: uuid.UUID) -> None:
     db = SessionLocal()
     try:
@@ -69,8 +91,10 @@ async def _execute(remediation_id: uuid.UUID) -> None:
             logger.exception("remediation_id=%s %s call failed", remediation_id, handler["tool"])
             action = mark_remediation_result(db, remediation_id, status=RemediationStatus.failed, result=str(exc))
         else:
-            outcome = handler["verb"] if result["action_taken"] else f"skipped: {result['skipped']}"
-            action = mark_remediation_result(db, remediation_id, status=RemediationStatus.executed, result=outcome)
+            outcome_status, outcome_result = _outcome_for(result, handler["verb"], handler["tool"])
+            if outcome_status == RemediationStatus.failed:
+                logger.warning("remediation_id=%s %s", remediation_id, outcome_result)
+            action = mark_remediation_result(db, remediation_id, status=outcome_status, result=outcome_result)
 
         recompute_incident_status(db, action.incident_id)
 
@@ -88,20 +112,31 @@ async def _execute(remediation_id: uuid.UUID) -> None:
                 remediations=remediations,
             )
 
-        # Fallback for a large "Approve All Remaining" batch: response_url is only good
-        # for ~5 uses/30min (confirmed empirically -- see post_remediation_update's
-        # docstring), so with enough candidates approved at once, the *last* completions
-        # to finish can't post their update at all and the message goes stale. Once
-        # nothing is left pending for this incident, guarantee one accurate final
-        # message via the durable channel webhook instead of the exhausted response_url.
-        # Only fires on failure -- the normal, small-batch case (response_url succeeds)
-        # is unchanged, no extra message. In a very large batch, more than one of the
-        # tail-end completions could independently satisfy this and post a duplicate
-        # final message -- accepted as a rare, harmless redundancy rather than adding
-        # cross-task locking for it.
+        # "Approve All Remaining" starts one Celery job per pid, and all of those jobs
+        # run at the same time. Each job finishes by re-reading every row for this
+        # incident and re-posting the whole message to Slack. Because the jobs don't
+        # coordinate with each other, two things can go wrong:
+        #
+        #   1. response_url only works ~5 times / 30 minutes (see post_remediation_update's
+        #      docstring). In a big batch, a late job's post can simply fail with a 404.
+        #
+        #   2. Even when every post succeeds, only the one that *arrives at Slack last*
+        #      stays on screen. That's not necessarily the one built from the freshest
+        #      data -- a job can finish, but its Slack update loses the race to an older
+        #      update from a job that was already slightly ahead of it. The result: Slack
+        #      keeps showing a row as "still running" even though it finished moments ago.
+        #
+        # The fix for both: once every row for this incident is done (approved, rejected,
+        # or failed), send one more guaranteed-fresh message through the durable Slack
+        # webhook -- not the possibly-expired, possibly-out-of-order response_url.
+        #
+        # This only matters for multi-row batches. A single-row approval has only one
+        # job, so nothing can race it -- its one successful post is already final and
+        # correct, and sending a second "final" message for it would just be noise.
         terminal_statuses = {RemediationStatus.executed, RemediationStatus.failed, RemediationStatus.rejected}
         all_terminal = all(a["status"] in {s.value for s in terminal_statuses} for a in remediations)
-        if not posted and all_terminal:
+        is_multi_row_batch = len(remediations) > 1
+        if all_terminal and (not posted or is_multi_row_batch):
             await post_diagnosis(
                 incident_id=str(incident.id),
                 diagnosis={"title": incident.title, "risk_tier": incident.risk_tier.value, "description": incident.description},
