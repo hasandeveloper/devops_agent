@@ -2,7 +2,7 @@
 
 # 🩺 devops-agent
 
-## AI-powered AWS incident investigation & remediation service, with fixes gated behind human-in-the-loop (HITL) approval
+## AI-powered AWS incident investigation
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
