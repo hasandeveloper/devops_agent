@@ -2,7 +2,7 @@
 
 # 🩺 devops-agent
 
-## AI-powered AWS incident investigation
+## AI-powered AWS incident investigation Service
 
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
